@@ -1,0 +1,10 @@
+import json
+
+with open("term_category_counts.txt") as f:
+    for i, line in enumerate(f):
+        try:
+            k, v = line.strip().split("\t")
+            key = json.loads(k)
+            value = json.loads(v)
+        except Exception as e:
+            print(f"❌ Line {i+1} failed: {line.strip()} → {e}")
