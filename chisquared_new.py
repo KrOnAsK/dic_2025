@@ -34,46 +34,52 @@ class ChiSquaredJob1(MRJob):
             yield ("TERM_GLOBAL", token), 1
 
     def combiner(self, key, values):
-                """
-                Combiner to sum up the values for each key.
-                """
-                yield None, (key, sum(values))
+        """
+        Combiner to sum up the values for each key.
+        """
+        yield key, sum(values)
 
     def reducer(self, key, values):
-                """
-                Reducer to sum up the values for each key.
-                """
+        """
+        Reducer to sum up the values for each key.
+        """
 
-                #https://stackoverflow.com/questions/15051137/mrjob-can-a-reducer-perform-2-operations
-                token_total = dict()
-                cat_total = dict()
-                docs_total = 0
-                token_cat_total = dict()
-                token_cat_chi2 = dict()
+        yield key, sum(values)
+
+    def combiner2(self, key, values):
+        yield None, (key, sum(values))
+
+    def reducer2(self, _, lines):
+        #https://stackoverflow.com/questions/15051137/mrjob-can-a-reducer-perform-2-operations
+        token_total = dict()
+        cat_total = dict()
+        docs_total = 0
+        token_cat_total = dict()
+        token_cat_chi2 = dict()
+        
+        for key, val in lines:
+            kind, content = key
+            if kind == "TERM_IN_CAT":
+                token, category = content
+                token_cat_total[(token, category)] = val
+            elif kind == "CATEGORY_DOC_COUNT":
+                cat_total[content] = val
+            elif kind == "TOTAL_DOCS":
+                docs_total = val
+            elif kind == "TERM_GLOBAL":
+                    token_total[content] = val
+
+        for token, category in token_cat_total:
+            A = token_cat_total[(token, category)]
+            B = token_total[token] - A
+            C = cat_total[category] - A
+            D = docs_total - A - B - C
+            numerator = (A * D - B * C) ** 2 * docs_total
+            denominator = (A + B) * (C + D) * (A + C) * (B + D)
+            chi2 = numerator / denominator if denominator != 0 else 0
+            token_cat_chi2[(token, category)] = chi2
+            yield (token, category), chi2
                 
-                for key, val in values:
-                    kind, content = key
-                    if kind == "TERM_IN_CAT":
-                        token, category = content
-                        token_cat_total[(token, category)] = val
-                    elif kind == "CATEGORY_DOC_COUNT":
-                        cat_total[content] = val
-                    elif kind == "TOTAL_DOCS":
-                        docs_total = val
-                    elif kind == "TERM_GLOBAL":
-                         token_total[content] = val
-
-                for token, category in token_cat_total:
-                    A = token_cat_total[(token, category)]
-                    B = token_total[token] - A
-                    C = cat_total[category] - A
-                    D = docs_total - A - B - C
-                    numerator = (A * D - B * C) ** 2 * docs_total
-                    denominator = (A + B) * (C + D) * (A + C) * (B + D)
-                    chi2 = numerator / denominator if denominator != 0 else 0
-                    token_cat_chi2[(token, category)] = chi2
-                    yield (token, category), chi2
-
     def steps(self):
         """
         Define the steps of the MRJob.
@@ -83,6 +89,10 @@ class ChiSquaredJob1(MRJob):
                 mapper=self.mapper,
                 combiner=self.combiner,
                 reducer=self.reducer
+            ),
+            MRStep(
+                combiner=self.combiner2,
+                reducer=self.reducer2
             )
         ]
         
