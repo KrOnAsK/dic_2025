@@ -3,7 +3,9 @@
 from mrjob.job import MRJob
 from mrjob.step import MRStep
 import json
-import timeit
+import time
+import heapq
+
 
 class ChiSquaredJob1(MRJob):
     def mapper(self, _, line):
@@ -41,22 +43,31 @@ class ChiSquaredJob1(MRJob):
 
     def reducer(self, key, values):
         """
-        Reducer to sum up the values for each key.
+        Reducer to sum up the values for each key. In order to be able to process them in a 
+        single reducer step in reducer 2, we merge the results into one key using None.
         """
 
-        yield key, sum(values)
-
-    def combiner2(self, key, values):
         yield None, (key, sum(values))
 
     def reducer2(self, _, lines):
+        """
+        Input: null [[<"TOTAL_DOCS"/"CATEGORY_DOC_COUNT"/"TERM_GLOBAL">, "bogeyman"], 2]
+        Input: null [[<"TERM_IN_CAT">, ["checker", "Toys_and_Game"]], 1]
+        Output:
+          - ("TOTAL_DOCS", None) → 1
+          - ("CATEGORY_DOC_COUNT", category) → 1
+          - ("TERM_IN_CAT", (term, category)) → 1
+          - ("TERM_GLOBAL", term) → 1
+        """
         #https://stackoverflow.com/questions/15051137/mrjob-can-a-reducer-perform-2-operations
         token_total = dict()
         cat_total = dict()
         docs_total = 0
         token_cat_total = dict()
         token_cat_chi2 = dict()
+        all_tokens = set()
         
+        #We loop through the previously summed up values (total tokens, tokens per category, ...) and read them into respective dictionaries
         for key, val in lines:
             kind, content = key
             if kind == "TERM_IN_CAT":
@@ -69,7 +80,9 @@ class ChiSquaredJob1(MRJob):
             elif kind == "TERM_GLOBAL":
                     token_total[content] = val
 
+        #loop through the dictionary containing the information of each token in each category and calculate chi-square value.
         for token, category in token_cat_total:
+            all_tokens.add(token)
             A = token_cat_total[(token, category)]
             B = token_total[token] - A
             C = cat_total[category] - A
@@ -77,8 +90,19 @@ class ChiSquaredJob1(MRJob):
             numerator = (A * D - B * C) ** 2 * docs_total
             denominator = (A + B) * (C + D) * (A + C) * (B + D)
             chi2 = numerator / denominator if denominator != 0 else 0
-            token_cat_chi2[(token, category)] = chi2
-            yield (token, category), chi2
+            if category not in token_cat_chi2:
+                token_cat_chi2[category] = dict()
+            token_cat_chi2[category][token] = chi2
+            #yield (token, category), chi2
+
+        #loop through all categories, fetch top 75 tokens according to the chi-square value and create a printline, which is then yielded as a result.
+        for category in token_cat_chi2:
+            top_terms = heapq.nlargest(75, token_cat_chi2[category].items(), key=lambda x: x[1])
+            printline = category + " " + " ".join(f"{token}:{chi2}" for token, chi2 in top_terms)
+            yield None, printline
+
+        #add all tokens sorted
+        yield None, " ".join(f"{token}" for token in sorted(all_tokens))
                 
     def steps(self):
         """
@@ -90,16 +114,15 @@ class ChiSquaredJob1(MRJob):
                 combiner=self.combiner,
                 reducer=self.reducer
             ),
-            MRStep(
-                combiner=self.combiner2,
-                reducer=self.reducer2
-            )
+            #MRStep(
+            #    reducer=self.reducer2
+            #)
         ]
         
 if __name__ == '__main__':
-    start = timeit.timeit()
+    start = time.time()
     ChiSquaredJob1.run()
-    end = timeit.timeit()
+    end = time.time()
     print(end - start)
 
 
