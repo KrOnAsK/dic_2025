@@ -45,7 +45,10 @@ class ChiSquaredJob1(MRJob):
         """
         Reducer to sum up the values for each key. In order to be able to process them in a 
         single reducer step in reducer 2, we merge the results into one key using None.
+        #https://stackoverflow.com/questions/15051137/mrjob-can-a-reducer-perform-2-operations
+        #https://mrjob.readthedocs.io/en/latest/guides/writing-mrjobs.html
         """
+        
 
         yield None, (key, sum(values))
 
@@ -58,8 +61,7 @@ class ChiSquaredJob1(MRJob):
           - ("CATEGORY_DOC_COUNT", category) → 1
           - ("TERM_IN_CAT", (term, category)) → 1
           - ("TERM_GLOBAL", term) → 1
-        """
-        #https://stackoverflow.com/questions/15051137/mrjob-can-a-reducer-perform-2-operations
+        """        
         token_total = dict()
         cat_total = dict()
         docs_total = 0
