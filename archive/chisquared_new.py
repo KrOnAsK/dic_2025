@@ -116,16 +116,16 @@ class ChiSquaredJob1(MRJob):
                 combiner=self.combiner,
                 reducer=self.reducer
             ),
-            #MRStep(
-            #    reducer=self.reducer2
-            #)
+            MRStep(
+                reducer=self.reducer2
+            )
         ]
         
 if __name__ == '__main__':
     start = time.time()
     ChiSquaredJob1.run()
     end = time.time()
-    print(end - start)
+    #print(end - start)
 
 
 
