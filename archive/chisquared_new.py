@@ -73,8 +73,8 @@ class ChiSquaredJob1(MRJob):
         for key, val in lines:
             kind, content = key
             if kind == "TERM_IN_CAT":
-                token, cat = content
-                token_cat_total[(token, cat)] = val
+                token, category = content
+                token_cat_total[(token, category)] = val
             elif kind == "CATEGORY_DOC_COUNT":
                 cat_total[content] = val
             elif kind == "TOTAL_DOCS":
@@ -83,30 +83,28 @@ class ChiSquaredJob1(MRJob):
                     token_total[content] = val
 
         #loop through the dictionary containing the information of each token in each category and calculate chi-square value.
-        #this produces huge intermediate results, trying to change that 
-        for (token, cat), A in token_cat_total.items():
+        for token, category in token_cat_total:
             all_tokens.add(token)
+            A = token_cat_total[(token, category)]
             B = token_total[token] - A
-            C = cat_total[cat] - A
+            C = cat_total[category] - A
             D = docs_total - A - B - C
-
             numerator = (A * D - B * C) ** 2 * docs_total
             denominator = (A + B) * (C + D) * (A + C) * (B + D)
             chi2 = numerator / denominator if denominator != 0 else 0
-
-          
-
-            token_cat_chi2.setdefault(cat, {})[token] = chi2
+            if category not in token_cat_chi2:
+                token_cat_chi2[category] = dict()
+            token_cat_chi2[category][token] = chi2
+            #yield (token, category), chi2
 
         #loop through all categories, fetch top 75 tokens according to the chi-square value and create a printline, which is then yielded as a result.
-        for cat in sorted(token_cat_chi2):
-            top_terms = heapq.nlargest(75, token_cat_chi2[cat].items(), key=lambda x: x[1])
-            
-            out = " ".join(f"{t}:{v}" for t,v in top_terms)
-            yield cat, out
+        for category in token_cat_chi2:
+            top_terms = heapq.nlargest(75, token_cat_chi2[category].items(), key=lambda x: x[1])
+            printline = category + " " + " ".join(f"{token}:{chi2}" for token, chi2 in top_terms)
+            yield None, printline
 
-        #yield "MERGED_DICT", " ".join(sorted(all_tokens))
-        
+        #add all tokens sorted
+        yield None, " ".join(f"{token}" for token in sorted(all_tokens))
                 
     def steps(self):
         """
@@ -127,7 +125,7 @@ if __name__ == '__main__':
     start = time.time()
     ChiSquaredJob1.run()
     end = time.time()
-    print(end - start)
+    #print(end - start)
 
 
 
