@@ -13,6 +13,9 @@ import os
 from typing import List, Set, Dict, Any
 from pathlib import Path
 from tqdm import tqdm  # For progress bar
+import time
+import sys
+import argparse
 
 
 class TextPreprocessor:
@@ -150,6 +153,7 @@ def preprocess_reviews(input_path: str, output_path: str, stopwords_path: str):
         output_path (str): Path to output JSON file with preprocessed reviews
         stopwords_path (str): Path to stopwords file
     """
+    start_time = time.time()
     # Initialize preprocessor
     preprocessor = TextPreprocessor(stopwords_path)
     
@@ -160,8 +164,12 @@ def preprocess_reviews(input_path: str, output_path: str, stopwords_path: str):
     
     # Process the file in chunks
     processed_count, error_count = preprocess_chunk(preprocessor, input_path, output_path)
+
     
-    print(f"Preprocessing complete! Processed {processed_count} reviews with {error_count} errors.")
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print(f"Preprocessing completed in {execution_time:.2f} seconds")
+    print(f"Processed {processed_count} reviews with {error_count} errors")
 
 
 if __name__ == "__main__":
@@ -175,3 +183,7 @@ if __name__ == "__main__":
     
     # Run the preprocessing
     preprocess_reviews(args.input, args.output, args.stopwords)
+    start_time = time.time()
+    preprocess_reviews(args.input, args.output, args.stopwords)
+    end_time = time.time()
+    print(f"Total script execution time: {end_time - start_time:.2f} seconds")
