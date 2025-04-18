@@ -5,6 +5,8 @@ from mrjob.step import MRStep
 import json
 import time
 import heapq
+import sys
+import argparse
 
 
 class ChiSquaredJob1(MRJob):
@@ -128,7 +130,7 @@ if __name__ == '__main__':
     start = time.time()
     ChiSquaredJob1.run()
     end = time.time()
-    #print(end - start)
+    print(f"Job execution time: {end - start:.2f} seconds")
 
 
 
