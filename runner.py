@@ -40,8 +40,7 @@ class ChiSquaredJob(MRJob):
         """
         Input: {"reviewID": ..., "category": ..., "reviewText": ...}
         Output:
-          - ("TOTAL_DOCS", None) → 1
-          - ("CAT_COUNT", category) → 1
+          - ("C_COUNT", category) → 1
           - (category, token) → 1
         """
         data = json.loads(line)
@@ -64,8 +63,7 @@ class ChiSquaredJob(MRJob):
         if len(tokens) == 0:
             return
 
-        yield ("TOTAL_DOCS", None), 1
-        yield ("CAT_COUNT", category), 1
+        yield ("C_COUNT", category), 1
         for token in tokens:
             yield (category, token), 1
 
@@ -85,40 +83,39 @@ class ChiSquaredJob(MRJob):
         """
         Initialize for streaming chi-squared calculation.
         """
-        self.total_docs = 0
-        self.count_category = defaultdict(int)
-        self.count_token = defaultdict(int)
-        self.count_token_category = defaultdict(dict)
+        self.total = 0
+        self.category = defaultdict(int)
+        self.token = defaultdict(int)
+        self.category_token = defaultdict(dict)
 
     def reducer2(self, _, lines):
         """
         Second reducer that calculates chi-squared in a streaming fashion.
         """
         for key, count in lines:
-            if key[0] == "TOTAL_DOCS":
-                self.total_docs = count
-            elif key[0] == "CAT_COUNT":
+            if key[0] == "C_COUNT":
                 _, category = key
-                self.count_category[category] = count
+                self.total += count
+                self.category[category] = count
             else:
                 category, token = key
-                self.count_token_category[category][token] = count
-                self.count_token[token] += count
+                self.token[token] += count
+                self.category_token[category][token] = count
 
     def reducer2_final(self):
         """
         Calculate and output chi-squared scores.
         """
         # Process each category
-        for category, tokens in sorted(self.count_token_category.items()):
+        for category, tokens in sorted(self.category_token.items()):
             # Calculate chi-squared for each token in this category
             scores = []
             for token, A in tokens.items():
-                B = self.count_token[token] - A
-                C = self.count_category[category] - A
-                D = self.total_docs - A - B - C
+                B = self.token[token] - A
+                C = self.category[category] - A
+                D = self.total - A - B - C
 
-                numerator = self.total_docs * (A * D - B * C) ** 2
+                numerator = self.total * (A * D - B * C) ** 2
                 denominator = (A + B) * (A + C) * (B + D) * (C + D)
 
                 if denominator != 0:
@@ -131,7 +128,7 @@ class ChiSquaredJob(MRJob):
             yield category, out
 
         # Yield all tokens
-        all_tokens = sorted(self.count_token.keys())
+        all_tokens = sorted(self.token.keys())
         yield "MERGED_DICT", " ".join(all_tokens)
 
     def steps(self):
