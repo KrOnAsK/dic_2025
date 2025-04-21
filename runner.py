@@ -42,8 +42,7 @@ class ChiSquaredJob(MRJob):
         Output:
           - ("TOTAL_DOCS", None) → 1
           - ("CAT_COUNT", category) → 1
-          - ("TOKEN_COUNT", token) → 1
-          - ("TC", (token, category)) → 1
+          - (category, token) → 1
         """
         data = json.loads(line)
         text = data.get("reviewText", "")
@@ -68,8 +67,7 @@ class ChiSquaredJob(MRJob):
         yield ("TOTAL_DOCS", None), 1
         yield ("CAT_COUNT", category), 1
         for token in tokens:
-            yield ("TOKEN_COUNT", token), 1
-            yield ("TC_COUNT", (token, category)), 1
+            yield (category, token), 1
 
     def combiner(self, key, values):
         """
@@ -88,8 +86,8 @@ class ChiSquaredJob(MRJob):
         Initialize for streaming chi-squared calculation.
         """
         self.total_docs = 0
-        self.count_category = {}
-        self.count_token = {}
+        self.count_category = defaultdict(int)
+        self.count_token = defaultdict(int)
         self.count_token_category = defaultdict(dict)
 
     def reducer2(self, _, lines):
@@ -102,14 +100,10 @@ class ChiSquaredJob(MRJob):
             elif key[0] == "CAT_COUNT":
                 _, category = key
                 self.count_category[category] = count
-            elif key[0] == "TOKEN_COUNT":
-                _, token = key
-                self.count_token[token] = count
-            elif key[0] == "TC_COUNT":
-                token, category = key[1]
-                self.count_token_category[category][token] = count
             else:
-                raise Exception(f"unreachable, got key: {key}")
+                category, token = key
+                self.count_token_category[category][token] = count
+                self.count_token[token] += count
 
     def reducer2_final(self):
         """
