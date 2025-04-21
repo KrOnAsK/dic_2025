@@ -10,6 +10,7 @@ import time
 import heapq
 import re
 from collections import Counter, defaultdict
+import sys
 
 
 def load_stopwords(path: str) -> set[str]:
@@ -107,6 +108,8 @@ class ChiSquaredJob(MRJob):
         Calculate and output chi-squared scores.
         """
         # Process each category
+        all_tokens = set()
+
         for category, tokens in sorted(self.category_token.items()):
             # Calculate chi-squared for each token in this category
             scores = []
@@ -124,12 +127,12 @@ class ChiSquaredJob(MRJob):
 
             # Get top 75 terms
             top_terms = heapq.nlargest(75, scores, key=lambda x: x[1])
+            all_tokens = all_tokens.union([t for t, _ in top_terms])
             out = " ".join(f"{t}:{v}" for t, v in top_terms)
             yield category, out
 
         # Yield all tokens
-        all_tokens = sorted(self.token.keys())
-        yield "MERGED_DICT", " ".join(all_tokens)
+        yield "MERGED_DICT", " ".join(sorted(all_tokens))
 
     def steps(self):
         """
@@ -151,7 +154,8 @@ class ChiSquaredJob(MRJob):
 
 
 if __name__ == "__main__":
+    print("Starting script", file=sys.stderr)
     start = time.time()
     ChiSquaredJob.run()
     end = time.time()
-    print(f"Job execution time: {end - start:.2f} seconds")
+    print(f"Job execution time: {end - start:.2f} seconds", file=sys.stderr)
