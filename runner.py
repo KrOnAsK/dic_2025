@@ -9,7 +9,7 @@ import json
 import time
 import heapq
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 
 def load_stopwords(path: str) -> set[str]:
@@ -41,7 +41,7 @@ class ChiSquaredJob(MRJob):
         Input: {"reviewID": ..., "category": ..., "reviewText": ...}
         Output:
           - ("C_COUNT", category) → 1
-          - (category, token) → 1
+          - (category, token) → count
         """
         data = json.loads(line)
         text = data.get("reviewText", "")
@@ -64,8 +64,8 @@ class ChiSquaredJob(MRJob):
             return
 
         yield ("C_COUNT", category), 1
-        for token in tokens:
-            yield (category, token), 1
+        for token, count in Counter(tokens).items():
+            yield (category, token), count
 
     def combiner(self, key, values):
         """
