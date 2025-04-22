@@ -55,7 +55,19 @@ def get_handles(base_name="counts"):
     return handles, wait_procs, paths, use_hdfs
 
 
-def run_preprocessor(command, handles):
+def run_preprocessor(use_hdfs, handles, wait_procs):
+
+    command = ["python", "preprocessor.py"] + sys.argv[1:]
+    if use_hdfs:
+        command = [
+            "python",
+            "preprocessor.py",
+            "--hadoop-streaming-jar",
+            HADOOP_STREAMING_JAR,
+            "-r",
+            "hadoop",
+        ] + sys.argv[1:]
+
     print(f"Running {' '.join(command)}", file=sys.stderr)
     preprocessor = subprocess.Popen(
         command,
@@ -65,7 +77,7 @@ def run_preprocessor(command, handles):
         bufsize=1,
     )
 
-    n = "0"
+    n = 0
     for line in preprocessor.stdout:
         key, value = line.strip().split("\t")
         if key.startswith("TC"):
@@ -73,17 +85,22 @@ def run_preprocessor(command, handles):
         elif key.startswith("C"):
             _, _, category = key.split(".")
             handles["category"].write(f"{category}\t{value}\n")
+            n += int(value)
         elif key.startswith("T"):
             _, token, _ = key.split(".")
             handles["token"].write(f"{token}\t{value}\n")
-        elif key.startswith("D"):
-            n = value
 
     preprocessor.wait()
     if preprocessor.returncode != 0:
         print("Job failed", file=sys.stderr)
         sys.exit()
-    return n
+
+    for handle in handles.values():
+        handle.close()
+    for proc in wait_procs:
+        proc.wait()
+
+    return str(n)
 
 
 def run_chisquared(paths, n, use_hdfs):
@@ -112,11 +129,25 @@ def run_chisquared(paths, n, use_hdfs):
     print(f"Running {' '.join(command)}", file=sys.stderr)
     chisquared = subprocess.Popen(
         command,
-        stdout=sys.stdout,
+        stdout=subprocess.PIPE,
         stderr=sys.stderr,
         text=True,
         bufsize=1,
     )
+
+    all_tokens = set()
+    result = {}
+    for line in chisquared.stdout:
+        category, value = line.split("\t")
+        value = value.strip()
+        result[category] = value
+        for pair in value.split(" "):
+            token, chi2 = pair.split(":")
+            all_tokens.add(token)
+
+    for category, value in sorted(result.items()):
+        print(f"{category}\t{value}")
+    print(" ".join(sorted(all_tokens)))
 
     chisquared.wait()
     if chisquared.returncode != 0:
@@ -130,30 +161,16 @@ def main():
 
     handles, wait_procs, paths, use_hdfs = get_handles()
 
-    try:
-        preprocessor_cmd = ["python", "preprocessor.py"] + sys.argv[1:]
-        if use_hdfs:
-            preprocessor_cmd = [
-                "python",
-                "preprocessor.py",
-                "--hadoop-streaming-jar",
-                HADOOP_STREAMING_JAR,
-                "-r",
-                "hadoop",
-            ] + sys.argv[1:]
+    n = run_preprocessor(use_hdfs, handles, wait_procs)
 
-        n = run_preprocessor(preprocessor_cmd, handles)
-
-    finally:
-        for handle in handles.values():
-            handle.close()
-        for proc in wait_procs:
-            proc.wait()
+    mid = time.time()
+    print(f"Preprocessor execution time: {mid - start:.2f} seconds", file=sys.stderr)
 
     run_chisquared(paths, n, use_hdfs)
 
     end = time.time()
-    print(f"Job execution time: {end - start:.2f} seconds", file=sys.stderr)
+    print(f"Chisquared execution time: {end - mid:.2f} seconds", file=sys.stderr)
+    print(f"Total execution time: {end - start:.2f} seconds", file=sys.stderr)
 
 
 if __name__ == "__main__":

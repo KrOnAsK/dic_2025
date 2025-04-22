@@ -39,7 +39,6 @@ class PreprocessorJob(MRJob):
         """
         Input: {"reviewID": ..., "category": ..., "reviewText": ...}
         Output:
-          - "D.*.*" → 1
           - "C.*.category" → 1
           - "T.token.*" → 1
           - "TC.token.category" → 1
@@ -54,7 +53,6 @@ class PreprocessorJob(MRJob):
             if token and len(token) > 1 and token not in self.stopwords:
                 tokens.add(token)
 
-        yield "D.*.*", 1
         yield f"C.*.{category}", 1
         for token in tokens:
             yield f"T.{token}.*", 1
@@ -70,7 +68,6 @@ class PreprocessorJob(MRJob):
         """
         Emit as raw values.
         Output:
-          - "D.*.*" → count
           - "C.*.category" → count
           - "T.token.*" → count
           - "TC.token.category" → count

@@ -20,7 +20,7 @@ class ChiSquaredJob(MRJob):
         self.add_file_arg("--category_counts", help="Path to the category_counts file")
         self.add_file_arg("--token_counts", help="Path to the token_counts file")
 
-    def chi_mapper_init(self):
+    def mapper_init(self):
         self.N = self.options.n
 
         self.map_C = {}
@@ -35,7 +35,7 @@ class ChiSquaredJob(MRJob):
                 key, value = line.split("\t")
                 self.map_T[key] = int(value)
 
-    def chi_mapper(self, key, value):
+    def mapper(self, key, value):
         """
         Compute chi-squared values.
         """
@@ -51,35 +51,14 @@ class ChiSquaredJob(MRJob):
         chi2 = numerator / denominator
         yield category, (chi2, token)
 
-    def chi_reducer(self, category, term_chi_pairs):
+    def reducer(self, category, term_chi_pairs):
         """
         Keep top 75 tokens per category.
         """
         top_75 = heapq.nlargest(75, term_chi_pairs)
-        yield None, (category, sorted(top_75, reverse=True))
-
-    def finializer(self, _, lines):
-        all_tokens = set()
-        for category, values in sorted(lines):
-            all_tokens.update([t for _, t in values])
-            formatted = [f"{term}:{chi2:.4f}" for chi2, term in values]
-            yield category, " ".join(formatted)
-        yield "MERGED_DICT", " ".join(sorted(all_tokens))
-
-    def steps(self):
-        """
-        Define the steps of the MRJob.
-        """
-        return [
-            MRStep(
-                mapper_init=self.chi_mapper_init,
-                mapper=self.chi_mapper,
-                reducer=self.chi_reducer,
-            ),
-            MRStep(
-                reducer=self.finializer,
-            ),
-        ]
+        yield category, " ".join(
+            [f"{token}:{chi2:.4f}" for chi2, token in sorted(top_75, reverse=True)]
+        )
 
 
 if __name__ == "__main__":
