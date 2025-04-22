@@ -124,9 +124,7 @@ class ChiSquaredJob(MRJob):
                 yield partition, ("C", c, c_val)
 
         for t, t_val in self.map_T.items():
-            for partition in range(0, self.num_partitions):
-                if self.hash_token(t) == partition:
-                    yield partition, ("T", t, t_val)
+            yield self.hash_token(t), ("T", t, t_val)
 
     def chi_reducer_init(self):
         self.N = 0
