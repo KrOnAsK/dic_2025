@@ -55,17 +55,16 @@ class ChiSquaredJob(MRJob):
 
         # Split on delimiters
         # Filter out single chars and stopwords
-        tokens = [
-            token
-            for token in WORD_RE.split(text)
-            if token and len(token) > 1 and token not in self.stopwords
-        ]
+        tokens = set()
+        for token in WORD_RE.split(text):
+            if token and len(token) > 1 and token not in self.stopwords:
+                tokens.add(token)
 
         yield ("D", "*", "*"), 1
         yield ("C", "*", category), 1
-        for token, count in Counter(tokens).items():
-            yield ("T", token, "*"), count
-            yield ("TC", token, category), count
+        for token in tokens:
+            yield ("T", token, "*"), 1
+            yield ("TC", token, category), 1
 
     def combiner(self, key, values):
         """
