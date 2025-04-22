@@ -3,14 +3,12 @@
 Example: python runner.py reviews_devset.json --stopwords stopwords.txt > output.txt
 """
 
-from mrjob.protocol import RawProtocol
+from mrjob.protocol import RawProtocol, JSONValueProtocol
 from mrjob.job import MRJob
 from mrjob.step import MRStep
-import json
 import time
 import heapq
 import re
-from collections import Counter
 import sys
 
 
@@ -31,6 +29,7 @@ WORD_RE = re.compile(
 
 class ChiSquaredJob(MRJob):
 
+    INPUT_PROTOCOL = JSONValueProtocol
     OUTPUT_PROTOCOL = RawProtocol
 
     def configure_args(self):
@@ -40,7 +39,7 @@ class ChiSquaredJob(MRJob):
     def mapper_init(self):
         self.stopwords = load_stopwords(self.options.stopwords)
 
-    def mapper(self, _, line):
+    def mapper(self, _, data):
         """
         Input: {"reviewID": ..., "category": ..., "reviewText": ...}
         Output:
@@ -49,7 +48,6 @@ class ChiSquaredJob(MRJob):
           - ("T", token, "*") → int
           - ("TC", token, category) → int
         """
-        data = json.loads(line)
         text = data.get("reviewText", "").lower()
         category = data.get("category", "")
 
