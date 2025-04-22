@@ -9,7 +9,7 @@ import json
 import time
 import heapq
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 import sys
 
 
@@ -41,18 +41,17 @@ class ChiSquaredJob(MRJob):
         """
         Input: {"reviewID": ..., "category": ..., "reviewText": ...}
         Output:
-          - ("C_COUNT", category) → 1
-          - (category, token) → count
+          - ("D", "*", "*") → 1
+          - ("C", "*", category) → 1
+          - ("T", token, "*") → int
+          - ("TC", token, category) → int
         """
         data = json.loads(line)
-        text = data.get("reviewText", "")
+        text = data.get("reviewText", "").lower()
         category = data.get("category", "")
 
         if not text or not category:
             return
-
-        # Convert to lowercase (case folding)
-        text = text.lower()
 
         # Split on delimiters and filter
         tokens = [
@@ -61,12 +60,14 @@ class ChiSquaredJob(MRJob):
             if token and len(token) > 1 and token not in self.stopwords
         ]
 
-        if len(tokens) == 0:
+        if not tokens:
             return
 
-        yield ("C_COUNT", category), 1
+        yield ("D", "*", "*"), 1
+        yield ("C", "*", category), 1
         for token, count in Counter(tokens).items():
-            yield (category, token), count
+            yield ("T", token, "*"), count
+            yield ("TC", token, category), count
 
     def combiner(self, key, values):
         """
@@ -76,62 +77,112 @@ class ChiSquaredJob(MRJob):
 
     def reducer(self, key, values):
         """
-        First reducer to aggregate counts. Send to same reducer in next step by setting key to None
+        Distribute randomly.
+        Output:
+          - (partition) → ("TC", token, category, int)
         """
-        yield None, (key, sum(values))
+        yield key, sum(values)
 
-    def reducer2_init(self):
-        """
-        Initialize for streaming chi-squared calculation.
-        """
-        self.total = 0
-        self.category = defaultdict(int)
-        self.token = defaultdict(int)
-        self.category_token = defaultdict(dict)
+    def chi_mapper_init(self):
+        # there shouldn't be more than 25 nodes
+        self.num_partitions = 25
+        self.N = 0
+        self.map_C = {}
+        self.map_T = {}
+        self.map_token_to_partion = {}
+        self.hash_token = lambda token: hash(token) % self.num_partitions
 
-    def reducer2(self, _, lines):
+    def chi_mapper(self, key, count):
         """
-        Second reducer that calculates chi-squared in a streaming fashion.
+        Distribute randomly.
+        Output:
+          - (partition) → ("TC", token, category, int)
         """
-        for key, count in lines:
-            if key[0] == "C_COUNT":
-                _, category = key
-                self.total += count
-                self.category[category] = count
+        id, token, category = key
+
+        if id == "D":
+            self.N = count
+        elif id == "C":
+            self.map_C[category] = count
+        elif id == "T":
+            self.map_T[token] = count
+        elif id == "TC":
+            partition = self.hash_token(token)
+            self.map_token_to_partion[partition] = token
+            yield partition, ("TC", token, category, count)
+
+    def chi_mapper_final(self):
+        """
+        Distribute metadata to all that need it.
+        """
+        if self.N:
+            for partition in range(0, self.num_partitions):
+                yield partition, ("N", self.N)
+
+        for c, c_val in self.map_C.items():
+            for partition in range(0, self.num_partitions):
+                yield partition, ("C", c, c_val)
+
+        for t, t_val in self.map_T.items():
+            for partition in range(0, self.num_partitions):
+                if self.hash_token(t) == partition:
+                    yield partition, ("T", t, t_val)
+
+    def chi_reducer_init(self):
+        self.N = 0
+        self.map_C = {}
+        self.map_T = {}
+        self.map_TC = {}
+
+    def chi_reducer(self, _, lines):
+        """
+        Build dictionaries.
+        """
+        for value in lines:
+            if value[0] == "N":
+                self.N = value[1]
+            elif value[0] == "C":
+                self.map_C[value[1]] = value[2]
+            elif value[0] == "T":
+                self.map_T[value[1]] = value[2]
+            elif value[0] == "TC":
+                self.map_TC[(value[1], value[2])] = value[3]
             else:
-                category, token = key
-                self.token[token] += count
-                self.category_token[category][token] = count
+                raise Exception("unreachable")
 
-    def reducer2_final(self):
+    def chi_reducer_final(self):
         """
-        Calculate and output chi-squared scores.
+        Compute chi-squared values.
         """
-        # Process each category
+        for (token, category), A in self.map_TC.items():
+            B = self.map_T[token] - A
+            C = self.map_C[category] - A
+            D = self.N - A - B - C
+
+            numerator = self.N * (A * D - B * C) ** 2
+            denominator = (A + B) * (A + C) * (B + D) * (C + D)
+
+            chi2 = numerator / denominator
+            yield category, (token, chi2)
+
+    def keep_top_75(self, category, term_chi_pairs):
+        """
+        Keep top 75 tokens per category.
+        """
+        top_75 = []
+        for term, chi2 in term_chi_pairs:
+            if len(top_75) < 75:
+                heapq.heappush(top_75, (chi2, term))
+            else:
+                heapq.heappushpop(top_75, (chi2, term))
+        yield None, (category, sorted(top_75, reverse=True))
+
+    def finializer(self, _, line):
         all_tokens = set()
-
-        for category, tokens in sorted(self.category_token.items()):
-            # Calculate chi-squared for each token in this category
-            scores = []
-            for token, A in tokens.items():
-                B = self.token[token] - A
-                C = self.category[category] - A
-                D = self.total - A - B - C
-
-                numerator = self.total * (A * D - B * C) ** 2
-                denominator = (A + B) * (A + C) * (B + D) * (C + D)
-
-                if denominator != 0:
-                    chi2 = numerator / denominator
-                    scores.append((token, chi2))
-
-            # Get top 75 terms
-            top_terms = heapq.nlargest(75, scores, key=lambda x: x[1])
-            all_tokens = all_tokens.union([t for t, _ in top_terms])
-            out = " ".join(f"{t}:{v}" for t, v in top_terms)
-            yield category, out
-
-        # Yield all tokens
+        for category, values in line:
+            all_tokens = all_tokens.union([t for _, t in values])
+            formatted = [f"{term}:{chi2:.4f}" for chi2, term in values]
+            yield category, " ".join(formatted)
         yield "MERGED_DICT", " ".join(sorted(all_tokens))
 
     def steps(self):
@@ -146,9 +197,18 @@ class ChiSquaredJob(MRJob):
                 reducer=self.reducer,
             ),
             MRStep(
-                reducer_init=self.reducer2_init,
-                reducer=self.reducer2,
-                reducer_final=self.reducer2_final,
+                mapper_init=self.chi_mapper_init,
+                mapper=self.chi_mapper,
+                mapper_final=self.chi_mapper_final,
+                reducer_init=self.chi_reducer_init,
+                reducer=self.chi_reducer,
+                reducer_final=self.chi_reducer_final,
+            ),
+            MRStep(
+                reducer=self.keep_top_75,
+            ),
+            MRStep(
+                reducer=self.finializer,
             ),
         ]
 
