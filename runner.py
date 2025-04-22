@@ -3,6 +3,7 @@
 Example: python runner.py reviews_devset.json --stopwords stopwords.txt > output.txt
 """
 
+from mrjob.protocol import RawProtocol
 from mrjob.job import MRJob
 from mrjob.step import MRStep
 import json
@@ -30,6 +31,8 @@ WORD_RE = re.compile(
 
 class ChiSquaredJob(MRJob):
 
+    OUTPUT_PROTOCOL = RawProtocol
+
     def configure_args(self):
         super(ChiSquaredJob, self).configure_args()
         self.add_file_arg("--stopwords", help="Path to the stopwords file")
@@ -50,18 +53,13 @@ class ChiSquaredJob(MRJob):
         text = data.get("reviewText", "").lower()
         category = data.get("category", "")
 
-        if not text or not category:
-            return
-
-        # Split on delimiters and filter
+        # Split on delimiters
+        # Filter out single chars and stopwords
         tokens = [
             token
             for token in WORD_RE.split(text)
             if token and len(token) > 1 and token not in self.stopwords
         ]
-
-        if not tokens:
-            return
 
         yield ("D", "*", "*"), 1
         yield ("C", "*", category), 1
@@ -71,25 +69,21 @@ class ChiSquaredJob(MRJob):
 
     def combiner(self, key, values):
         """
-        Combiner that summarizes local data.
+        Simple sum.
         """
         yield key, sum(values)
 
     def reducer(self, key, values):
         """
-        Distribute randomly.
-        Output:
-          - (partition) → ("TC", token, category, int)
+        Emit extra tokens to reduce load in shuffling.
         """
         yield key, sum(values)
 
     def chi_mapper_init(self):
-        # there shouldn't be more than 25 nodes
         self.num_partitions = 25
         self.N = 0
         self.map_C = {}
         self.map_T = {}
-        self.map_token_to_partion = {}
         self.hash_token = lambda token: hash(token) % self.num_partitions
 
     def chi_mapper(self, key, count):
@@ -108,7 +102,6 @@ class ChiSquaredJob(MRJob):
             self.map_T[token] = count
         elif id == "TC":
             partition = self.hash_token(token)
-            self.map_token_to_partion[partition] = token
             yield partition, ("TC", token, category, count)
 
     def chi_mapper_final(self):
@@ -161,24 +154,24 @@ class ChiSquaredJob(MRJob):
             denominator = (A + B) * (A + C) * (B + D) * (C + D)
 
             chi2 = numerator / denominator
-            yield category, (token, chi2)
+            yield category, (chi2, token)
 
     def keep_top_75(self, category, term_chi_pairs):
         """
         Keep top 75 tokens per category.
         """
         top_75 = []
-        for term, chi2 in term_chi_pairs:
+        for chi2, term in term_chi_pairs:
             if len(top_75) < 75:
                 heapq.heappush(top_75, (chi2, term))
             else:
                 heapq.heappushpop(top_75, (chi2, term))
         yield None, (category, sorted(top_75, reverse=True))
 
-    def finializer(self, _, line):
+    def finializer(self, _, lines):
         all_tokens = set()
-        for category, values in line:
-            all_tokens = all_tokens.union([t for _, t in values])
+        for category, values in sorted(lines):
+            all_tokens.update([t for _, t in values])
             formatted = [f"{term}:{chi2:.4f}" for chi2, term in values]
             yield category, " ".join(formatted)
         yield "MERGED_DICT", " ".join(sorted(all_tokens))
