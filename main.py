@@ -33,10 +33,7 @@ def get_handles(base_name="counts"):
     if use_hdfs:
         print("[INFO] HDFS detected, writing outputs to HDFS", file=sys.stderr)
         hdfs_base = f"hdfs:///user/{user}"
-        paths = {
-            k: f"{hdfs_base}/{v}"
-            for k, v in paths.items()
-        }
+        paths = {k: f"{hdfs_base}/{v}" for k, v in paths.items()}
 
         procs = {
             k: subprocess.Popen(
@@ -44,17 +41,15 @@ def get_handles(base_name="counts"):
                 stdin=subprocess.PIPE,
                 stderr=sys.stderr,
                 text=True,
-            ) for k, path in paths.items()
+            )
+            for k, path in paths.items()
         }
 
         handles = {k: proc.stdin for k, proc in procs.items()}
         wait_procs = list(procs.values())
     else:
         print("[INFO] HDFS not found, writing outputs to local files", file=sys.stderr)
-        handles = {
-            k: open(path, "w")
-            for k, path in paths.items()
-        }
+        handles = {k: open(path, "w") for k, path in paths.items()}
         wait_procs = []
 
     return handles, wait_procs, paths, use_hdfs
@@ -85,6 +80,9 @@ def run_preprocessor(command, handles):
             n = value
 
     preprocessor.wait()
+    if preprocessor.returncode != 0:
+        print("Job failed", file=sys.stderr)
+        sys.exit()
     return n
 
 
@@ -93,17 +91,22 @@ def run_chisquared(paths, n, use_hdfs):
         "python",
         "chisquared.py",
         paths["category_token"],
-        "--category_counts", paths["category"],
-        "--token_counts", paths["token"],
-        "--n", n,
+        "--category_counts",
+        paths["category"],
+        "--token_counts",
+        paths["token"],
+        "--n",
+        n,
     ]
 
     if use_hdfs:
         command = [
             "python",
             "chisquared.py",
-            "-r", "hadoop",
-            "--hadoop-streaming-jar", HADOOP_STREAMING_JAR,
+            "--hadoop-streaming-jar",
+            HADOOP_STREAMING_JAR,
+            "-r",
+            "hadoop",
         ] + command[2:]
 
     print(f"Running {' '.join(command)}", file=sys.stderr)
@@ -114,7 +117,11 @@ def run_chisquared(paths, n, use_hdfs):
         text=True,
         bufsize=1,
     )
+
     chisquared.wait()
+    if chisquared.returncode != 0:
+        print("Job failed", file=sys.stderr)
+        sys.exit()
 
 
 def main():
@@ -129,8 +136,10 @@ def main():
             preprocessor_cmd = [
                 "python",
                 "preprocessor.py",
-                "-r", "hadoop",
-                "--hadoop-streaming-jar", HADOOP_STREAMING_JAR,
+                "--hadoop-streaming-jar",
+                HADOOP_STREAMING_JAR,
+                "-r",
+                "hadoop",
             ] + sys.argv[1:]
 
         n = run_preprocessor(preprocessor_cmd, handles)
