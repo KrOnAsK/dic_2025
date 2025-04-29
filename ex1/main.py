@@ -8,6 +8,9 @@ HADOOP_STREAMING_JAR = "/usr/lib/hadoop/tools/lib/hadoop-streaming-3.3.6.jar"
 
 
 def hdfs_available():
+    """
+    Check if HDFS is available.    
+    """
     try:
         subprocess.run(
             ["hdfs", "dfs", "-ls", "/"],
@@ -21,6 +24,9 @@ def hdfs_available():
 
 
 def get_handles(base_name="counts"):
+    """
+    Provide handles depending on user and HDFS availability   
+    """
     user = getpass.getuser()
     use_hdfs = hdfs_available()
 
@@ -56,7 +62,9 @@ def get_handles(base_name="counts"):
 
 
 def run_preprocessor(use_hdfs, handles, wait_procs):
-
+    """
+    Start Preprocessor MRJob.
+    """
     command = ["python", "preprocessor.py"] + sys.argv[1:]
     if use_hdfs:
         command = [
@@ -104,6 +112,9 @@ def run_preprocessor(use_hdfs, handles, wait_procs):
 
 
 def run_chisquared(paths, n, use_hdfs):
+    """
+    Start Chisquared MRJob.
+    """
     command = [
         "python",
         "chisquared.py",

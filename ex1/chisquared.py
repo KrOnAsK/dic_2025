@@ -16,6 +16,9 @@ class ChiSquaredJob(MRJob):
 
     def configure_args(self):
         super(ChiSquaredJob, self).configure_args()
+        """
+        Configure allowed argument parameters.
+        """
         self.add_passthru_arg("--n", type=int, help="Total number of documents")
         self.add_file_arg("--category_counts", help="Path to the category_counts file")
         self.add_file_arg("--token_counts", help="Path to the token_counts file")
