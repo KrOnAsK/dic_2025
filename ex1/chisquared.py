@@ -24,6 +24,9 @@ class ChiSquaredJob(MRJob):
         self.add_file_arg("--token_counts", help="Path to the token_counts file")
 
     def mapper_init(self):
+        """
+        Initialization to access data from preprocessor.
+        """
         self.N = self.options.n
 
         self.map_C = {}
