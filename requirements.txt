@@ -1,0 +1,9 @@
+# --- Core stack ----------------------------------------------------
+pyspark==3.5.1          # Spark 3.5, built for Java 8/11 – matches your local install
+numpy==1.26.4           # pin to latest that still supports older wheels on Windows
+pandas==2.2.2
+matplotlib==3.9.0       # plain pyplot; no seaborn needed
+
+# --- Extras / infra -----------------------------------------------
+setuptools>=69.5        # provides 'distutils' which PySpark still expects
+pyarrow>=15.0           # lets Spark read/write Parquet/Arrow; harmless to include
