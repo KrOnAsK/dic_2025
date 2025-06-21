@@ -4,6 +4,7 @@ source .venv/bin/activate
 
 #echo "Emptying reviews bucket..."
 #awslocal s3 rm s3://localstack-review-app-reviews --recursive
+#awslocal dynamodb delete-table --table-name reviews
 
 create_bucket_if_not_exists() {
   BUCKET_NAME=$1

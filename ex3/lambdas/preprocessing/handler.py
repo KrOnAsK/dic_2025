@@ -35,10 +35,13 @@ def handler(event, context):
 
     for record in event.get("Records", []):
         bucket = record["s3"]["bucket"]["name"]
+        print(f"Processing bucket: {bucket}")
         key = record["s3"]["object"]["key"]
+        print(f"Processing key: {key}")
 
         try:
             response = s3.get_object(Bucket=bucket, Key=key)
+            print(f"Retrieved object {key} from bucket {bucket}")
             review_json = response["Body"].read().decode("utf-8")
             review_data = json.loads(review_json)
         except ClientError as e:
@@ -48,29 +51,36 @@ def handler(event, context):
             }
 
     item = {
+            "review_id": {"S": key},
             "reviewerID": {"S": review_data["reviewerID"]},
             "asin": {"S": review_data["asin"]},
             "reviewerName": {"S": review_data.get("reviewerName", "")},
-            "helpful": {"L": [{"N": str(n)} for n in review_data.get("helpful", [])]},
+            "helpful": {"L": [{"S": str(n)} for n in review_data.get("helpful", [])]},
             "reviewText": {"S": review_data.get("reviewText", "")},
-            "overall": {"N": str(review_data.get("overall", 0))},
+            "overall": {"S": str(review_data.get("overall", 0))},
             "summary": {"S": review_data.get("summary", "")},
-            "unixReviewTime": {"N": str(review_data.get("unixReviewTime", 0))},
+            "unixReviewTime": {"S": str(review_data.get("unixReviewTime", 0))},
             "reviewTime": {"S": review_data.get("reviewTime", "")},
             "category": {"S": review_data.get("category", "")},
         }
+    
+    print(f"Prepared item for DynamoDB: {item}")
 
 
     try:
+        response = dynamodb.describe_table(TableName=table_name)
+        print(f"DynamoDB Schema:")
+        print(json.dumps(response['Table']['KeySchema'], indent=2))
         dynamodb.put_item(TableName=table_name, Item=item)
         print(f"Review {review_data['reviewerID']} saved to DynamoDB table {table_name}")
     except ClientError as e:
+        print(f"Error saving review to DynamoDB: {e.response['Error']['Message']}")
         return {
             "statusCode": 500,
             "body": f"Error saving review: {e.response['Error']['Message']}"
         }
     
-
+    print(f"Review {review_data['reviewerID']} processed successfully.")
     return {
         "statusCode": 200,
         "body": json.dumps({

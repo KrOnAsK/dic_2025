@@ -17,6 +17,9 @@
     }
 
     let imageItemTemplate = Handlebars.compile($("#image-item-template").html());
+    let textItemTemplate = Handlebars.compile($("#text-item-template").html());
+
+
 
     $("#configForm").submit(async function (event) {
         if (event.preventDefault)
@@ -180,6 +183,31 @@
         });
     }
 
+    function updateDBList() {
+        let listUrl = $("#functionUrlDBList").val();
+        if (!listUrl) {
+            alert("Please set the function URL of the list Lambda");
+            return
+        }
+        console.log("Updating DB list from", listUrl);
+        $.ajax({
+            url: listUrl,
+            success: function (response) {
+                $('#dbContainer').empty(); 
+                response.forEach(function (item) {
+                    console.log(item);
+                    let cardHtml = textItemTemplate(item);
+                    console.log("cardHtml", cardHtml);
+                    $("#dbContainer").append(cardHtml);
+                });
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                console.log("Error:", textStatus, errorThrown);
+                alert("error! check the logs");
+            }
+        });
+    }
+
     $("#updateReviewListButton").click(function (event) {
         updateReviewList();
     });
@@ -191,7 +219,7 @@
         updateReviewList();
     }
     if (functionUrlDBList) {
-        updateReviewList();
+        updateDBList();
     }
 
 })(jQuery);
