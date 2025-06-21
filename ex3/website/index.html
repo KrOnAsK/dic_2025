@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Serverless image resizer</title>
+  <title>Serverless review analyzer</title>
 
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css"
         rel="stylesheet"
@@ -17,7 +17,7 @@
 <div class="col-lg-8 mx-auto p-4 py-md-5">
   <header class="d-flex align-items-center pb-3 mb-5 border-bottom">
     <a href="/" class="d-flex align-items-center text-dark text-decoration-none">
-      <span class="fs-5"><i class="bi bi-images fs-4"></i> Serverless thumbnail generator</span>
+      <span class="fs-5">Serverless review analyzer</span>
     </a>
   </header>
 
@@ -42,6 +42,12 @@
               Function URL of the <code>list</code> Lambda
             </label>
             <input type="text" class="form-control" id="functionUrlList" autocomplete="false"/>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="functionUrlDBList">
+              Function URL of the <code>db_list</code> Lambda
+            </label>
+            <input type="text" class="form-control" id="functionUrlDBList" autocomplete="false"/>
           </div>
           <div class="mb-3">
             <button type="submit" name="load" class="btn btn-primary mb-3">Load from API</button>
@@ -74,7 +80,7 @@
         <form id="uploadForm" action="#" method="post">
           <div class="mb-3">
             <label class="form-label" for="customFile">Select your file to upload</label>
-            <input type="file" class="form-control" id="customFile" name="file" required/>
+            <input type="file" class="form-control" id="customFile" name="file" required accept=".json,application/json"/>
           </div>
           <div class="mb-3">
             <button type="submit" class="btn btn-primary mb-3">Upload <i
@@ -89,20 +95,37 @@
       </div>
     </div>
   </section>
-
   <section class="mt-4">
     <div class="row">
       <div class="col">
-        <h1 class="h4">List your files <i class="bi bi-image"></i></h1>
+        <h1 class="h4">DynamoDB entries</h1>
       </div>
       <div class="col text-align-right">
-        <button class="btn btn-primary" style="float: right" id="updateImageListButton">Refresh</button>
+        <button class="btn btn-primary" style="float: right" id="updateDBButton">Refresh</button>
       </div>
     </div>
     <p class="mt-2">
-        The images you uploaded should be shown here.
+        The entries of the DynamoDB should be shown here.
+        When the refresh action is triggered, the browser makes a request to the <code>db_list</code> Lambda URL
+        which returns all entries from the DynamoDB. The JavaScript then populates the list below using a Handlebars template.
+      </p>
+    <hr>
+    <div id="dbContainer">
+    </div>
+  </section>
+  <section class="mt-4">
+    <div class="row">
+      <div class="col">
+        <h1 class="h4">List your uploaded json files</h1>
+      </div>
+      <div class="col text-align-right">
+        <button class="btn btn-primary" style="float: right" id="updateReviewListButton">Refresh</button>
+      </div>
+    </div>
+    <p class="mt-2">
+        The json files you uploaded should be shown here.
         When the refresh action is triggered, the browser makes a request to the <code>list</code> Lambda URL
-        which returns a JSON document of all items in the images and the resized images bucket. The JavaScript
+        which returns a JSON document of all items in the reviews bucket. The JavaScript
         then populates the list below using a Handlebars template.
       </p>
     <hr>
@@ -119,18 +142,12 @@
   <div class="card mt-3">
     <div class="card-header">{{Name}}</div>
     <div class="row justify-content">
-      <div class="col-auto">
-        <img src="{{Resized.URL}}" class="img-fluid" alt="{{Name}}">
-      </div>
       <div class="col">
         <div class="card-body">
           <p class="card-text"><b>{{Name}}</b></p>
           <p class="card-text">Timestamp: {{Timestamp}}</p>
           <p class="card-text">
             <a href="{{Original.URL}}">Original</a> ({{Original.Size}} bytes)
-          </p>
-          <p class="card-text">
-            <a href="{{Resized.URL}}">Resized</a> ({{Resized.Size}} bytes)
           </p>
         </div>
       </div>
