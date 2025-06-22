@@ -1,95 +1,117 @@
-import json
-import os
-import typing
-
 import boto3
-from botocore.exceptions import ClientError
-from datetime import datetime
+import json
+import re
+import os
+from nltk.stem import WordNetLemmatizer
+# The following NLTK data needs to be available in the Lambda environment.
+import nltk
+nltk.data.path.append("/tmp")
+nltk.download("wordnet", download_dir="/tmp")
+nltk.download("omw-1.4", download_dir="/tmp")
 
 
-if typing.TYPE_CHECKING:
-    from mypy_boto3_s3 import S3Client
-    from mypy_boto3_ssm import SSMClient
-    from mypy_boto3_dynamodb import DynamoDBClient
 
-# used to make sure that S3 generates pre-signed URLs that have the localstack URL in them
-endpoint_url = None
-if os.getenv("STAGE") == "local":
-    endpoint_url = "https://localhost.localstack.cloud:4566"
-
-s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
-ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
-dynamodb: "DynamoDBClient" = boto3.client("dynamodb", endpoint_url=endpoint_url)
+s3_client = boto3.client("s3")
+lemmatizer = WordNetLemmatizer()
 
 
-def get_table_name() -> str:
-    parameter = ssm.get_parameter(Name="/localstack-review-app/tables/reviews")
-    return parameter["Parameter"]["Value"]
+WORD_RE = re.compile(
+    r"[\s\t\d\(\)\[\]\{\}\.\!\?\,\;\:\+\=\-\_\"\'`\~\#\@\&\*\%\€\$\§\\\/]+"
+)
 
-
-def handler(event, context):
-    print(f"Received event: {json.dumps(event)}")
-    #bucket = get_bucket_name()
-
-    table_name = get_table_name()
-
-    for record in event.get("Records", []):
-        bucket = record["s3"]["bucket"]["name"]
-        print(f"Processing bucket: {bucket}")
-        key = record["s3"]["object"]["key"]
-        print(f"Processing key: {key}")
-
-        try:
-            response = s3.get_object(Bucket=bucket, Key=key)
-            print(f"Retrieved object {key} from bucket {bucket}")
-            review_json = response["Body"].read().decode("utf-8")
-            review_data = json.loads(review_json)
-        except ClientError as e:
-            return {
-                "statusCode": 500,
-                "body": f"Error retrieving object {key} from bucket {bucket}: {e.response['Error']['Message']}"
-            }
-
-    item = {
-            "review_id": {"S": key},
-            "reviewerID": {"S": review_data["reviewerID"]},
-            "asin": {"S": review_data["asin"]},
-            "reviewerName": {"S": review_data.get("reviewerName", "")},
-            "helpful": {"L": [{"S": str(n)} for n in review_data.get("helpful", [])]},
-            "reviewText": {"S": review_data.get("reviewText", "")},
-            "overall": {"S": str(review_data.get("overall", 0))},
-            "summary": {"S": review_data.get("summary", "")},
-            "unixReviewTime": {"S": str(review_data.get("unixReviewTime", 0))},
-            "reviewTime": {"S": review_data.get("reviewTime", "")},
-            "category": {"S": review_data.get("category", "")},
-        }
-    
-    print(f"Prepared item for DynamoDB: {item}")
-
-
+def load_stopwords_from_s3(bucket, key):
+    """
+    Loads stopwords from a specified file in S3.
+    This makes the stopword list easily updatable without changing code.
+    """
     try:
-        response = dynamodb.describe_table(TableName=table_name)
-        print(f"DynamoDB Schema:")
-        print(json.dumps(response['Table']['KeySchema'], indent=2))
-        dynamodb.put_item(TableName=table_name, Item=item)
-        print(f"Review {review_data['reviewerID']} saved to DynamoDB table {table_name}")
-    except ClientError as e:
-        print(f"Error saving review to DynamoDB: {e.response['Error']['Message']}")
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        stopwords_content = response['Body'].read().decode('utf-8')
+        return set(stopwords_content.splitlines())
+    except Exception as e:
+        print(f"Error loading stopwords from s3://{bucket}/{key}: {e}")
+        return set()
+
+def preprocess_text(text: str, stopwords: set) -> list[str]:
+    """
+    Performs the full preprocessing pipeline on a given string of text.
+    1. Lowercasing
+    2. Tokenization
+    3. Stop word removal
+    4. Lemmatization
+    """
+    # 1. Lowercase the text
+    text = text.lower()
+
+    # 2. Tokenize the text and filter out short tokens
+    tokens = [token for token in WORD_RE.split(text) if len(token) > 1]
+
+    # 3. Filter out stopwords
+    filtered_tokens = [token for token in tokens if token not in stopwords]
+
+    # 4. Lemmatize the tokens
+    lemmatized_tokens = [lemmatizer.lemmatize(token) for token in filtered_tokens]
+
+    return lemmatized_tokens
+
+
+def preprocess(event, context):
+    """
+    AWS Lambda handler function for preprocessing customer reviews.
+    """
+
+    source_bucket = os.environ.get("SOURCE_BUCKET")
+    destination_bucket = os.environ.get("DESTINATION_BUCKET")
+    stopwords_key = os.environ.get("STOPWORDS_KEY", "stopwords.txt")
+
+    if not all([source_bucket, destination_bucket]):
         return {
             "statusCode": 500,
-            "body": f"Error saving review: {e.response['Error']['Message']}"
+            "body": json.dumps("Error: SOURCE_BUCKET or DESTINATION_BUCKET environment variables not set.")
         }
     
-    print(f"Review {review_data['reviewerID']} processed successfully.")
-    return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "message": "Review created successfully",
-            "reviewId": review_data['reviewerID']
-        })
-    }
+
+    stopwords = load_stopwords_from_s3(source_bucket, stopwords_key)
 
 
+    s3_event = event["Records"][0]["s3"]
+    review_bucket = s3_event["bucket"]["name"]
+    review_key = s3_event["object"]["key"]
 
-if __name__ == "__main__":
-    print(handler(None, None))
+    try:
+
+        response = s3_client.get_object(Bucket=review_bucket, Key=review_key)
+        review_data = json.loads(response['Body'].read().decode('utf-8'))
+
+
+        processed_summary = preprocess_text(review_data.get("summary", ""), stopwords)
+        processed_review_text = preprocess_text(review_data.get("reviewText", ""), stopwords)
+
+
+        output_data = {
+            "original_review": review_data,
+            "processed": {
+                "summary_tokens": processed_summary,
+                "reviewText_tokens": processed_review_text
+            }
+        }
+
+
+        s3_client.put_object(
+            Bucket=destination_bucket,
+            Key=review_key,
+            Body=json.dumps(output_data, indent=4),
+            ContentType="application/json"
+        )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps(f"Successfully processed {review_key} and uploaded to {destination_bucket}.")
+        }
+
+    except Exception as e:
+        print(f"Error processing file s3://{review_bucket}/{review_key}: {e}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps(f"Error processing file: {str(e)}")
+        }
