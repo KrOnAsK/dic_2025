@@ -4,6 +4,7 @@ import nltk
 
 import json
 import os
+import traceback
 
 endpoint_url = None
 if os.getenv("STAGE") == "local":
@@ -15,10 +16,6 @@ PROCESSED_BUCKET_NAME = os.environ.get("PROCESSED_BUCKET")
 s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
 ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
 
-# TODO: download locally and package into zip
-nltk.data.path.append("/tmp")
-nltk.download("punkt_tab", download_dir="/tmp")
-nltk.download("wordnet", download_dir="/tmp")
 lemmatizer = WordNetLemmatizer()
 
 
@@ -104,6 +101,7 @@ def preprocess(event, context):
 
     except Exception as e:
         print(f"Error processing file s3://{review_bucket}/{review_key}: {e}")
+        print(traceback.format_exc())
         return {
             "statusCode": 500,
             "body": json.dumps(f"Error processing file: {str(e)}")

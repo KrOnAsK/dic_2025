@@ -1,2 +1,2 @@
 boto3==1.38.23
-profanityfilter
+profanityfilter==2.1.0

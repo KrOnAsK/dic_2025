@@ -13,5 +13,5 @@ localstack==4.4.0
 
 awscli
 
-nltk
-profanityfilter
+nltk==3.9.1
+profanityfilter==2.1.0

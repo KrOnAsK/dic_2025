@@ -4,6 +4,7 @@ from profanityfilter import ProfanityFilter
 import json
 import os
 import typing
+import traceback
 
 if typing.TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
@@ -43,6 +44,7 @@ def handler(event, context):
         is_profane = pf.is_profane(" ".join(summary_tokens)) or pf.is_profane(" ".join(review_text_tokens))
     except Exception as e:
         print(f"Error processing file s3://{bucket_name}/{object_key}: {e}")
+        print(traceback.format_exc())
         return {"statusCode": 500, "body": json.dumps(f"Error: {str(e)}")}
 
     if is_profane:
@@ -79,6 +81,7 @@ def handler(event, context):
 
         except Exception as e:
             print(f"Error updating DynamoDB for user {reviewer_id}: {e}")
+            print(traceback.format_exc())
             return {"statusCode": 500, "body": json.dumps(f"DynamoDB Error: {str(e)}")}
 
     return {

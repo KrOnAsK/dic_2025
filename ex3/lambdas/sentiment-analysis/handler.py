@@ -5,6 +5,7 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import json
 import os
 import typing
+import traceback
 
 if typing.TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
@@ -18,10 +19,6 @@ SENTIMENT_RESULTS = os.environ.get("SENTIMENT_RESULTS")
 s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
 ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
 dynamodb_resource = boto3.resource("dynamodb", endpoint_url=endpoint_url)
-
-# TODO: download locally and package into zip
-nltk.data.path.append("/tmp")
-nltk.download("vader_lexicon", download_dir="/tmp")
 
 
 def get_results_table_name() -> str:
@@ -66,7 +63,6 @@ def handler(event, context):
     object_key = s3_event["object"]["key"]
 
     try:
-
         response = s3.get_object(Bucket=bucket_name, Key=object_key)
         review_data = json.loads(response['Body'].read().decode('utf-8'))
 
@@ -79,6 +75,7 @@ def handler(event, context):
 
     except Exception as e:
         print(f"Error processing file s3://{bucket_name}/{object_key}: {e}")
+        print(traceback.format_exc())
         return {"statusCode": 500, "body": json.dumps(f"Error: {str(e)}")}
 
     try:
@@ -100,6 +97,7 @@ def handler(event, context):
         )
     except Exception as e:
         print(f"Error saving results to DynamoDB: {e}")
+        print(traceback.format_exc())
         return {"statusCode": 500, "body": json.dumps(f"DynamoDB Error: {str(e)}")}
 
     return {
