@@ -1,5 +1,5 @@
 import boto3
-from profanity_check import predict
+from better_profanity import profanity
 
 import json
 import os
@@ -12,6 +12,7 @@ if typing.TYPE_CHECKING:
 endpoint_url = None
 if os.getenv("STAGE") == "local":
     endpoint_url = "https://localhost.localstack.cloud:4566"
+PROFANITY_RESULTS = os.environ.get("PROFANITY_RESULTS")
 
 s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
 ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
@@ -20,7 +21,7 @@ dynamodb_resource = boto3.resource("dynamodb", endpoint_url=endpoint_url)
 
 def get_customer_table_name() -> str:
     """Retrieves the customer table name from SSM Parameter Store."""
-    parameter = ssm.get_parameter(Name="/localstack-review-app/tables/customers")
+    parameter = ssm.get_parameter(Name=f"/localstack-review-app/tables/{PROFANITY_RESULTS}")
     return parameter["Parameter"]["Value"]
 
 
@@ -38,7 +39,7 @@ def handler(event, context):
         review_text_tokens = processed_review["processed"]["reviewText_tokens"]
         reviewer_id = processed_review["original_review"]["reviewerID"]
 
-        is_profane = predict(summary_tokens) or predict(review_text_tokens)
+        is_profane = profanity.contains_profanity(summary_tokens) or profanity.contains_profanity(review_text_tokens)
 
     except Exception as e:
         print(f"Error processing file s3://{bucket_name}/{object_key}: {e}")

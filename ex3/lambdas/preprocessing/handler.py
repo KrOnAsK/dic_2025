@@ -3,32 +3,47 @@ from nltk.stem import WordNetLemmatizer
 import nltk
 
 import json
+# TODO: figure out why we get the error `Runtime.ImportModuleError: Unable to import module 'handler': No module named 'regex._regex'`
 import re
 import os
 
+endpoint_url = None
+if os.getenv("STAGE") == "local":
+    endpoint_url = "https://localhost.localstack.cloud:4566"
+STOPWORDS_BUCKET_NAME = os.environ.get("STOPWORDS_BUCKET")
+STOPWORDS_KEY = os.environ.get("STOPWORDS_KEY", "stopwords.txt")
+PROCESSED_BUCKET_NAME = os.environ.get("PROCESSED_BUCKET")
+
+s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
+ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
+
+# TODO: download locally and package into zip
 nltk.data.path.append("/tmp")
 nltk.download("wordnet", download_dir="/tmp")
 nltk.download("omw-1.4", download_dir="/tmp")
-
-s3_client = boto3.client("s3")
 lemmatizer = WordNetLemmatizer()
-
 WORD_RE = re.compile(
     r"[\s\t\d\(\)\[\]\{\}\.\!\?\,\;\:\+\=\-\_\"\'`\~\#\@\&\*\%\€\$\§\\\/]+"
 )
 
 
-def load_stopwords_from_s3(bucket, key):
+def get_bucket_name_stopwords() -> str:
+    parameter = ssm.get_parameter(Name=f"/localstack-review-app/buckets/{STOPWORDS_BUCKET_NAME}")
+    return parameter["Parameter"]["Value"]
+
+
+def load_stopwords():
     """
     Loads stopwords from a specified file in S3.
     This makes the stopword list easily updatable without changing code.
     """
+    reviews_bucket = get_bucket_name_stopwords()
     try:
-        response = s3_client.get_object(Bucket=bucket, Key=key)
+        response = s3.get_object(Bucket=reviews_bucket, Key=STOPWORDS_KEY)
         stopwords_content = response['Body'].read().decode('utf-8')
         return set(stopwords_content.splitlines())
     except Exception as e:
-        print(f"Error loading stopwords from s3://{bucket}/{key}: {e}")
+        print(f"Error loading stopwords from s3://{reviews_bucket}/{STOPWORDS_KEY}: {e}")
         return set()
 
 
@@ -59,26 +74,14 @@ def preprocess(event, context):
     """
     AWS Lambda handler function for preprocessing customer reviews.
     """
-
-    source_bucket = os.environ.get("SOURCE_BUCKET")
-    destination_bucket = os.environ.get("DESTINATION_BUCKET")
-    stopwords_key = os.environ.get("STOPWORDS_KEY", "stopwords.txt")
-
-    if not all([source_bucket, destination_bucket]):
-        return {
-            "statusCode": 500,
-            "body": json.dumps("Error: SOURCE_BUCKET or DESTINATION_BUCKET environment variables not set.")
-        }
-
-    stopwords = load_stopwords_from_s3(source_bucket, stopwords_key)
+    stopwords = load_stopwords()
 
     s3_event = event["Records"][0]["s3"]
     review_bucket = s3_event["bucket"]["name"]
     review_key = s3_event["object"]["key"]
 
     try:
-
-        response = s3_client.get_object(Bucket=review_bucket, Key=review_key)
+        response = s3.get_object(Bucket=review_bucket, Key=review_key)
         review_data = json.loads(response['Body'].read().decode('utf-8'))
 
         processed_summary = preprocess_text(review_data.get("summary", ""), stopwords)
@@ -92,8 +95,8 @@ def preprocess(event, context):
             }
         }
 
-        s3_client.put_object(
-            Bucket=destination_bucket,
+        s3.put_object(
+            Bucket=PROCESSED_BUCKET_NAME,
             Key=review_key,
             Body=json.dumps(output_data, indent=4),
             ContentType="application/json"
@@ -101,7 +104,7 @@ def preprocess(event, context):
 
         return {
             "statusCode": 200,
-            "body": json.dumps(f"Successfully processed {review_key} and uploaded to {destination_bucket}.")
+            "body": json.dumps(f"Successfully processed {review_key} and uploaded to {PROCESSED_BUCKET_NAME}.")
         }
 
     except Exception as e:

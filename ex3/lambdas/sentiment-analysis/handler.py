@@ -12,6 +12,7 @@ if typing.TYPE_CHECKING:
 endpoint_url = None
 if os.getenv("STAGE") == "local":
     endpoint_url = "https://localhost.localstack.cloud:4566"
+SENTIMENT_RESULTS = os.environ.get("SENTIMENT_RESULTS")
 
 s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
 ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
@@ -21,7 +22,7 @@ analyzer = SentimentIntensityAnalyzer()
 
 
 def get_results_table_name() -> str:
-    parameter = ssm.get_parameter(Name="/localstack-review-app/tables/results")
+    parameter = ssm.get_parameter(Name=f"/localstack-review-app/tables/{SENTIMENT_RESULTS}")
     return parameter["Parameter"]["Value"]
 
 
@@ -58,9 +59,8 @@ def handler(event, context):
         response = s3.get_object(Bucket=bucket_name, Key=object_key)
         review_data = json.loads(response['Body'].read().decode('utf-8'))
 
-        original_review = review_data["original_review"]
-        review_text = original_review.get("reviewText", "")
-        summary_text = original_review.get("summary", "")
+        review_text = review_data.get("reviewText", "")
+        summary_text = review_data.get("summary", "")
 
         full_text = f"{summary_text}. {review_text}"
 
@@ -78,7 +78,7 @@ def handler(event, context):
         results_table.put_item(
             Item={
                 'review_id': object_key,
-                'reviewerID': original_review.get("reviewerID"),
+                'reviewerID': review_data.get("reviewerID"),
                 'sentiment': sentiment_result.get("classification"),
                 'sentiment_score': str(sentiment_result.get("score", 0.0))
 

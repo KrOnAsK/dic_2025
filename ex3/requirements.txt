@@ -15,4 +15,5 @@ awscli
 
 nltk
 profanity-check
+better_profanity
 vaderSentiment

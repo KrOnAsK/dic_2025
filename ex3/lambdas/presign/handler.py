@@ -14,41 +14,33 @@ if typing.TYPE_CHECKING:
 endpoint_url = None
 if os.getenv("STAGE") == "local":
     endpoint_url = "https://localhost.localstack.cloud:4566"
+REVIEWS_BUCKET_NAME = os.environ.get("REVIEWS_BUCKET")
 
 s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
 ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
 
 
 def get_bucket_name() -> str:
-    parameter = ssm.get_parameter(Name="/localstack-review-app/buckets/reviews")
+    parameter = ssm.get_parameter(Name=f"/localstack-review-app/buckets/{REVIEWS_BUCKET_NAME}")
     return parameter["Parameter"]["Value"]
 
 
 def handler(event, context):
-    bucket = get_bucket_name()
-
-    key = f"reviews/{str(uuid.uuid4())}.json"
-
     # make sure the bucket exists
+    bucket = get_bucket_name()
     try:
         s3.head_bucket(Bucket=bucket)
     except Exception:
         s3.create_bucket(Bucket=bucket)
 
-    # make sure the object does not exist
-    try:
-        s3.head_object(Bucket=bucket, Key=key)
-        return {"statusCode": 409, "body": f"{bucket}/{key} already exists"}
-    except ClientError as e:
-        if e.response["ResponseMetadata"]["HTTPStatusCode"] != 404:
-            raise
-
     # generate the pre-signed POST url
+    key = str(uuid.uuid4())
     url = s3.generate_presigned_post(
         Bucket=bucket,
         Key=key,
         Fields={"Content-Type": "application/json"},
-        Conditions=[{"Content-Type": "application/json"}], )
+        Conditions=[{"Content-Type": "application/json"}]
+    )
 
     # return it!
     return {"statusCode": 200, "body": json.dumps(url)}

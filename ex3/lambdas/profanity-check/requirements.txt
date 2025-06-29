@@ -1,3 +1,2 @@
 boto3==1.38.23
-#dep to large
-# profanity-check
+better_profanity
