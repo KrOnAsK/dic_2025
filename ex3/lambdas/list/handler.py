@@ -21,7 +21,6 @@ def get_bucket_name_reviews() -> str:
     return parameter["Parameter"]["Value"]
 
 
-
 def handler(event, context):
     reviews_bucket = get_bucket_name_reviews()
     reviews = s3.list_objects(Bucket=reviews_bucket)

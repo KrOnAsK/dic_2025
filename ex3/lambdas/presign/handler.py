@@ -5,13 +5,10 @@ import uuid
 
 import boto3
 from botocore.exceptions import ClientError
-from datetime import datetime
-
 
 if typing.TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
     from mypy_boto3_ssm import SSMClient
-    #from mypy_boto3_dynamodb import DynamoDBClient
 
 # used to make sure that S3 generates pre-signed URLs that have the localstack URL in them
 endpoint_url = None
@@ -20,7 +17,6 @@ if os.getenv("STAGE") == "local":
 
 s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
 ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
-#dynamodb: "DynamoDBClient" = boto3.client("dynamodb", endpoint_url=endpoint_url)
 
 
 def get_bucket_name() -> str:
@@ -34,7 +30,7 @@ def handler(event, context):
     key = f"reviews/{str(uuid.uuid4())}.json"
 
     # make sure the bucket exists
-    try: 
+    try:
         s3.head_bucket(Bucket=bucket)
     except Exception:
         s3.create_bucket(Bucket=bucket)
@@ -49,10 +45,10 @@ def handler(event, context):
 
     # generate the pre-signed POST url
     url = s3.generate_presigned_post(
-                                    Bucket=bucket, 
-                                    Key=key, 
-                                    Fields={"Content-Type": "application/json"},
-                                    Conditions=[{"Content-Type": "application/json"}],)
+        Bucket=bucket,
+        Key=key,
+        Fields={"Content-Type": "application/json"},
+        Conditions=[{"Content-Type": "application/json"}], )
 
     # return it!
     return {"statusCode": 200, "body": json.dumps(url)}

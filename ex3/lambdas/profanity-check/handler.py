@@ -1,14 +1,13 @@
 import boto3
+from profanity_check import predict
+
 import json
 import os
 import typing
-from profanity_check import predict
 
 if typing.TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
-    from mypy_boto3_dynamodb import DynamoDBClient
     from mypy_boto3_ssm import SSMClient
-
 
 endpoint_url = None
 if os.getenv("STAGE") == "local":
@@ -26,12 +25,10 @@ def get_customer_table_name() -> str:
 
 
 def handler(event, context):
-
-
     s3_event = event["Records"][0]["s3"]
     bucket_name = s3_event["bucket"]["name"]
     object_key = s3_event["object"]["key"]
-    
+
     try:
 
         response = s3.get_object(Bucket=bucket_name, Key=object_key)
@@ -40,7 +37,6 @@ def handler(event, context):
         summary_tokens = processed_review["processed"]["summary_tokens"]
         review_text_tokens = processed_review["processed"]["reviewText_tokens"]
         reviewer_id = processed_review["original_review"]["reviewerID"]
-        
 
         is_profane = predict(summary_tokens) or predict(review_text_tokens)
 
@@ -48,16 +44,13 @@ def handler(event, context):
         print(f"Error processing file s3://{bucket_name}/{object_key}: {e}")
         return {"statusCode": 500, "body": json.dumps(f"Error: {str(e)}")}
 
-
-
     if is_profane:
         try:
             table_name = get_customer_table_name()
             customer_table = dynamodb_resource.Table(table_name)
 
-
             update_expression = "SET #uc = if_not_exists(#uc, :start) + :inc, #s = if_not_exists(#s, :status_ok)"
-            
+
             response = customer_table.update_item(
                 Key={'reviewerID': reviewer_id},
                 UpdateExpression=update_expression,
@@ -73,7 +66,6 @@ def handler(event, context):
                 ReturnValues="UPDATED_NEW"
             )
 
-
             new_unpolite_count = int(response['Attributes']['unpolite_count'])
             if new_unpolite_count > 3:
                 customer_table.update_item(
@@ -87,8 +79,6 @@ def handler(event, context):
         except Exception as e:
             print(f"Error updating DynamoDB for user {reviewer_id}: {e}")
             return {"statusCode": 500, "body": json.dumps(f"DynamoDB Error: {str(e)}")}
-            
-
 
     return {
         "statusCode": 200,

@@ -13,5 +13,6 @@ localstack==4.4.0
 
 awscli
 
+nltk
 profanity-check
 vaderSentiment

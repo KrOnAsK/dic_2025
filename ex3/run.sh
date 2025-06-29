@@ -1,135 +1,129 @@
 #!/bin/bash
-echo "Activating virtual environment..."
-source .venv/bin/activate
 
-#echo "Emptying reviews bucket..."
-#awslocal s3 rm s3://localstack-review-app-reviews --recursive
-#awslocal dynamodb delete-table --table-name reviews
+set -eo pipefail
 
+echo "--- Defining resource names ---"
+# Variables for resource names to make the script easier to manage
+RAW_BUCKET="reviews-raw-bucket"
+PROCESSED_BUCKET="reviews-processed-bucket"
+SENTIMENT_INPUT_BUCKET="reviews-sentiment-input-bucket"
+CUSTOMER_TABLE="review-customers"
+RESULTS_TABLE="review-results"
+LAMBDA_ROLE_NAME="review-processing-lambda-role"
+LAMBDA_ROLE_ARN=""
+
+# Function to check if a bucket exists
 create_bucket_if_not_exists() {
-  BUCKET_NAME=$1
+  local BUCKET_NAME=$1
   if ! awslocal s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
     echo "Creating bucket $BUCKET_NAME..."
     awslocal s3 mb s3://"$BUCKET_NAME"
   else
-    echo "Bucket $BUCKET_NAME already exists, skipping creation."
+    echo "Bucket $BUCKET_NAME already exists."
   fi
 }
 
-create_table_if_not_exists() {
-  local TABLE_NAME=$1
+echo "--- 1. Creating S3 Buckets ---"
+create_bucket_if_not_exists $RAW_BUCKET
+create_bucket_if_not_exists $PROCESSED_BUCKET
+create_bucket_if_not_exists $SENTIMENT_INPUT_BUCKET
 
-  if awslocal dynamodb describe-table --table-name "$TABLE_NAME" >/dev/null 2>&1; then
-    echo "DynamoDB table $TABLE_NAME already exists, skipping creation."
-  else
-    echo "Creating DynamoDB table $TABLE_NAME..."
-    awslocal dynamodb create-table \
-      --table-name "$TABLE_NAME" \
-      --attribute-definitions AttributeName=review_id,AttributeType=S \
-      --key-schema AttributeName=review_id,KeyType=HASH \
-      --billing-mode PAY_PER_REQUEST
-  fi
+echo "--- 2. Creating DynamoDB Tables ---"
+# Customer table to track profanity counts
+awslocal dynamodb create-table \
+    --table-name $CUSTOMER_TABLE \
+    --attribute-definitions AttributeName=reviewerID,AttributeType=S \
+    --key-schema AttributeName=reviewerID,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST || echo "Table $CUSTOMER_TABLE already exists."
 
-  echo "Adding/updating SSM parameter for DynamoDB table $TABLE_NAME..."
-  awslocal ssm put-parameter --name /localstack-review-app/tables/reviews \
-    --type String --value "$TABLE_NAME" --overwrite
-}
+# Results table for sentiment analysis output
+awslocal dynamodb create-table \
+    --table-name $RESULTS_TABLE \
+    --attribute-definitions AttributeName=review_id,AttributeType=S \
+    --key-schema AttributeName=review_id,KeyType=HASH \
+    --billing-mode PAY_PER_REQUEST || echo "Table $RESULTS_TABLE already exists."
 
-echo "Creating S3 buckets and DynamoDB tables..."
-create_bucket_if_not_exists localstack-review-app-reviews
-create_table_if_not_exists reviews
+echo "--- 3. Creating SSM Parameters ---"
+awslocal ssm put-parameter --name "/localstack-review-app/tables/customers" --type "String" --value $CUSTOMER_TABLE --overwrite
+awslocal ssm put-parameter --name "/localstack-review-app/tables/results" --type "String" --value $RESULTS_TABLE --overwrite
+awslocal ssm put-parameter --name "/localstack-review-app/buckets/reviews" --type "String" --value $RAW_BUCKET --overwrite
 
 
-echo "Creating SSM parameters..."
-awslocal ssm put-parameter --name /localstack-review-app/buckets/reviews \
-  --type String --value "localstack-review-app-reviews" --overwrite
+echo "--- 4. Creating IAM Role and Policies ---"
+LAMBDA_ROLE_ARN=$(awslocal iam create-role \
+  --role-name ${LAMBDA_ROLE_NAME} \
+  --assume-role-policy-document '{"Version": "2012-10-17","Statement": [{ "Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]}' \
+  --query 'Role.Arn' --output text || awslocal iam get-role --role-name ${LAMBDA_ROLE_NAME} --query 'Role.Arn' --output text)
 
-echo "Creating pre-signed URL Lambda function..."
+awslocal iam attach-role-policy --role-name ${LAMBDA_ROLE_NAME} --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+awslocal iam attach-role-policy --role-name ${LAMBDA_ROLE_NAME} --policy-arn "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+awslocal iam attach-role-policy --role-name ${LAMBDA_ROLE_NAME} --policy-arn "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+awslocal iam attach-role-policy --role-name ${LAMBDA_ROLE_NAME} --policy-arn "arn:aws:iam::aws:policy/AmazonSSMFullAccess"
+echo "Waiting for IAM role propagation..."
+sleep 10
+
+
+echo "--- 5. Deploying Lambda Functions ---"
+
+# --- Presign Lambda ---
+awslocal lambda delete-function --function-name presign &>/dev/null || true
 (cd lambdas/presign; rm -f lambda.zip; zip lambda.zip handler.py)
-
-awslocal lambda delete-function --function-name presign || true
-
 awslocal lambda create-function \
   --function-name presign \
-  --runtime python3.11 \
-  --timeout 10 \
+  --runtime python3.11 --timeout 10 \
   --zip-file fileb://lambdas/presign/lambda.zip \
   --handler handler.handler \
-  --role arn:aws:iam::000000000000:role/lambda-role \
-  --environment Variables="{STAGE=local}"
+  --role $LAMBDA_ROLE_ARN \
+  --environment "Variables={STAGE=local}"
+awslocal lambda create-function-url-config --function-name presign --auth-type NONE
 
-awslocal lambda create-function-url-config \
-  --function-name presign \
-  --auth-type NONE
-
-echo "Creating preprocessing Lambda function..."
-(cd lambdas/preprocessing; rm -f lambda.zip; zip lambda.zip handler.py)
-
-awslocal lambda delete-function --function-name preprocessing || true
-
+# --- Preprocessing Lambda ---
+awslocal lambda delete-function --function-name preprocessing &>/dev/null || true
+(cd lambdas/preprocessing; rm -rf lambda.zip package; mkdir package; pip install -r requirements.txt -t package; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
 awslocal lambda create-function \
   --function-name preprocessing \
-  --runtime python3.11 \
-  --timeout 10 \
+  --runtime python3.11 --timeout 10 \
   --zip-file fileb://lambdas/preprocessing/lambda.zip \
-  --handler handler.handler \
-  --role arn:aws:iam::000000000000:role/lambda-role \
-  --environment Variables="{STAGE=local}"
+  --handler handler.preprocess \
+  --role $LAMBDA_ROLE_ARN \
+  --environment "Variables={SOURCE_BUCKET=$RAW_BUCKET,DESTINATION_BUCKET=$PROCESSED_BUCKET,STOPWORDS_KEY=stopwords.txt}"
 
-awslocal lambda create-function-url-config \
-  --function-name preprocessing \
-  --auth-type NONE
-
-echo "Creating list Lambda function..."
-(cd lambdas/list; rm -f lambda.zip; zip lambda.zip handler.py)
-
-awslocal lambda delete-function --function-name list || true
-
+# --- Profanity Check Lambda ---
+awslocal lambda delete-function --function-name profanity-check &>/dev/null || true
+(cd lambdas/profanity-check; rm -rf lambda.zip package; mkdir package; pip install -r requirements.txt -t package; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
 awslocal lambda create-function \
-  --function-name list \
-  --runtime python3.11 \
-  --timeout 10 \
-  --zip-file fileb://lambdas/list/lambda.zip \
+  --function-name profanity-check \
+  --runtime python3.11 --timeout 10 \
+  --zip-file fileb://lambdas/profanity-check/lambda.zip \
   --handler handler.handler \
-  --role arn:aws:iam::000000000000:role/lambda-role \
-  --environment Variables="{STAGE=local}"
+  --role $LAMBDA_ROLE_ARN \
+  --environment "Variables={DESTINATION_BUCKET=$SENTIMENT_INPUT_BUCKET}"
 
-awslocal lambda create-function-url-config \
-  --function-name list \
-  --auth-type NONE
-
-cho "Creating db_list Lambda function..."
-(cd lambdas/db_list; rm -f lambda.zip; zip lambda.zip handler.py)
-
-awslocal lambda delete-function --function-name db_list || true
-
+# --- Sentiment Analysis Lambda ---
+awslocal lambda delete-function --function-name sentiment-analysis &>/dev/null || true
+(cd lambdas/sentiment-analysis; rm -rf lambda.zip package; mkdir package; pip install -r requirements.txt -t package; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
 awslocal lambda create-function \
-  --function-name db_list \
-  --runtime python3.11 \
-  --timeout 10 \
-  --zip-file fileb://lambdas/db_list/lambda.zip \
+  --function-name sentiment-analysis \
+  --runtime python3.11 --timeout 10 \
+  --zip-file fileb://lambdas/sentiment-analysis/lambda.zip \
   --handler handler.handler \
-  --role arn:aws:iam::000000000000:role/lambda-role \
-  --environment Variables="{STAGE=local}"
+  --role $LAMBDA_ROLE_ARN
 
-awslocal lambda create-function-url-config \
-  --function-name db_list \
-  --auth-type NONE
-
-echo "Creating trigger(notification) for preprocessing Lambda function..."
+echo "--- 6. Creating S3 to Lambda Triggers ---"
+# Trigger for Preprocessing
 awslocal s3api put-bucket-notification-configuration \
-  --bucket localstack-review-app-reviews \
-  --notification-configuration "{\"LambdaFunctionConfigurations\":\
-  [{\"LambdaFunctionArn\": \"$(awslocal lambda get-function --function-name preprocessing | jq -r .Configuration.FunctionArn)\",\
-  \"Events\": [\"s3:ObjectCreated:*\"]}]}"
+  --bucket $RAW_BUCKET \
+  --notification-configuration "{\"LambdaFunctionConfigurations\":[{\"LambdaFunctionArn\":\"arn:aws:lambda:us-east-1:000000000000:function:preprocessing\",\"Events\":[\"s3:ObjectCreated:*\"]}]}"
 
-echo "Creating webapp S3 bucket and website..."
-create_bucket_if_not_exists review-webapp
+# Trigger for Profanity Check
+awslocal s3api put-bucket-notification-configuration \
+  --bucket $PROCESSED_BUCKET \
+  --notification-configuration "{\"LambdaFunctionConfigurations\":[{\"LambdaFunctionArn\":\"arn:aws:lambda:us-east-1:000000000000:function:profanity-check\",\"Events\":[\"s3:ObjectCreated:*\"]}]}"
 
-awslocal s3 sync ./website s3://review-webapp
+# Trigger for Sentiment Analysis
+awslocal s3api put-bucket-notification-configuration \
+  --bucket $SENTIMENT_INPUT_BUCKET \
+  --notification-configuration "{\"LambdaFunctionConfigurations\":[{\"LambdaFunctionArn\":\"arn:aws:lambda:us-east-1:000000000000:function:sentiment-analysis\",\"Events\":[\"s3:ObjectCreated:*\"]}]}"
 
-awslocal s3 website s3://review-webapp --index-document index.html
 
-echo "Open the web application in your browser..."
-echo "http://review-webapp.s3-website.localhost.localstack.cloud:4566"
-#open http://review-webapp.s3-website.localhost.localstack.cloud:4566
+echo "--- Setup complete! ---"

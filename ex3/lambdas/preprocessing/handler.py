@@ -1,23 +1,22 @@
 import boto3
+from nltk.stem import WordNetLemmatizer
+import nltk
+
 import json
 import re
 import os
-from nltk.stem import WordNetLemmatizer
-# The following NLTK data needs to be available in the Lambda environment.
-import nltk
+
 nltk.data.path.append("/tmp")
 nltk.download("wordnet", download_dir="/tmp")
 nltk.download("omw-1.4", download_dir="/tmp")
 
-
-
 s3_client = boto3.client("s3")
 lemmatizer = WordNetLemmatizer()
-
 
 WORD_RE = re.compile(
     r"[\s\t\d\(\)\[\]\{\}\.\!\?\,\;\:\+\=\-\_\"\'`\~\#\@\&\*\%\€\$\§\\\/]+"
 )
+
 
 def load_stopwords_from_s3(bucket, key):
     """
@@ -31,6 +30,7 @@ def load_stopwords_from_s3(bucket, key):
     except Exception as e:
         print(f"Error loading stopwords from s3://{bucket}/{key}: {e}")
         return set()
+
 
 def preprocess_text(text: str, stopwords: set) -> list[str]:
     """
@@ -69,10 +69,8 @@ def preprocess(event, context):
             "statusCode": 500,
             "body": json.dumps("Error: SOURCE_BUCKET or DESTINATION_BUCKET environment variables not set.")
         }
-    
 
     stopwords = load_stopwords_from_s3(source_bucket, stopwords_key)
-
 
     s3_event = event["Records"][0]["s3"]
     review_bucket = s3_event["bucket"]["name"]
@@ -83,10 +81,8 @@ def preprocess(event, context):
         response = s3_client.get_object(Bucket=review_bucket, Key=review_key)
         review_data = json.loads(response['Body'].read().decode('utf-8'))
 
-
         processed_summary = preprocess_text(review_data.get("summary", ""), stopwords)
         processed_review_text = preprocess_text(review_data.get("reviewText", ""), stopwords)
-
 
         output_data = {
             "original_review": review_data,
@@ -95,7 +91,6 @@ def preprocess(event, context):
                 "reviewText_tokens": processed_review_text
             }
         }
-
 
         s3_client.put_object(
             Bucket=destination_bucket,
