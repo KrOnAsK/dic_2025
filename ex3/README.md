@@ -23,6 +23,8 @@ it should look something like `http://64sbkkdvit3h3fz7p97ad4paf2yvyc4w.lambda-ur
 ```sh
 awslocal s3api put-object --bucket reviews --key (random uuid) --body review_single.json
 
-awslocal lambda invoke --function-name list-reviews output.txt
-awslocal lambda invoke --function-name db_list-sentiment output.txt
+awslocal lambda invoke --function-name list-reviews output.json
+awslocal lambda invoke --function-name list-preprocessing output.json
+awslocal lambda invoke --function-name db_list-profanity output.json
+awslocal lambda invoke --function-name db_list-sentiment output.json
 ```

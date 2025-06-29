@@ -3,8 +3,6 @@ from nltk.stem import WordNetLemmatizer
 import nltk
 
 import json
-# TODO: figure out why we get the error `Runtime.ImportModuleError: Unable to import module 'handler': No module named 'regex._regex'`
-import re
 import os
 
 endpoint_url = None
@@ -19,12 +17,9 @@ ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
 
 # TODO: download locally and package into zip
 nltk.data.path.append("/tmp")
+nltk.download("punkt_tab", download_dir="/tmp")
 nltk.download("wordnet", download_dir="/tmp")
-nltk.download("omw-1.4", download_dir="/tmp")
 lemmatizer = WordNetLemmatizer()
-WORD_RE = re.compile(
-    r"[\s\t\d\(\)\[\]\{\}\.\!\?\,\;\:\+\=\-\_\"\'`\~\#\@\&\*\%\€\$\§\\\/]+"
-)
 
 
 def get_bucket_name_stopwords() -> str:
@@ -58,8 +53,8 @@ def preprocess_text(text: str, stopwords: set) -> list[str]:
     # 1. Lowercase the text
     text = text.lower()
 
-    # 2. Tokenize the text and filter out short tokens
-    tokens = [token for token in WORD_RE.split(text) if len(token) > 1]
+    # 2. Tokenize the text
+    tokens = nltk.word_tokenize(text)
 
     # 3. Filter out stopwords
     filtered_tokens = [token for token in tokens if token not in stopwords]

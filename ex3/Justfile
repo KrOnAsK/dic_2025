@@ -69,7 +69,7 @@ lambdas:
 
     # --- Preprocessing Lambda ---
     awslocal lambda delete-function --function-name preprocessing &>/dev/null || true
-    (cd lambdas/preprocessing; rm -rf lambda.zip package; mkdir package; pip install -r requirements.txt -t package; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
+    (cd lambdas/preprocessing; docker run --rm -v $(pwd):/var/task alpine rm -rf /var/task/lambda.zip /var/task/package || true; mkdir package; docker run --rm -v $(pwd):/var/task -w /var/task python:3.11-slim bash -c "pip install -r requirements.txt -t package"; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
     awslocal lambda create-function \
       --function-name preprocessing \
       --runtime python3.11 --timeout 10 \
@@ -80,7 +80,7 @@ lambdas:
 
     # --- Profanity Check Lambda ---
     awslocal lambda delete-function --function-name profanity-check &>/dev/null || true
-    (cd lambdas/profanity-check; rm -rf lambda.zip package; mkdir package; pip install -r requirements.txt -t package; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
+    (cd lambdas/profanity-check; docker run --rm -v $(pwd):/var/task alpine rm -rf /var/task/lambda.zip /var/task/package || true; mkdir package; docker run --rm -v $(pwd):/var/task -w /var/task python:3.11-slim bash -c "pip install -r requirements.txt -t package"; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
     awslocal lambda create-function \
       --function-name profanity-check \
       --runtime python3.11 --timeout 10 \
@@ -91,7 +91,7 @@ lambdas:
 
     # --- Sentiment Analysis Lambda ---
     awslocal lambda delete-function --function-name sentiment-analysis &>/dev/null || true
-    (cd lambdas/sentiment-analysis; rm -rf lambda.zip package; mkdir package; pip install -r requirements.txt -t package; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
+    (cd lambdas/sentiment-analysis; docker run --rm -v $(pwd):/var/task alpine rm -rf /var/task/lambda.zip /var/task/package || true; mkdir package; docker run --rm -v $(pwd):/var/task -w /var/task python:3.11-slim bash -c "pip install -r requirements.txt -t package"; cd package; zip -r ../lambda.zip .; cd ..; zip lambda.zip handler.py)
     awslocal lambda create-function \
       --function-name sentiment-analysis \
       --runtime python3.11 --timeout 10 \

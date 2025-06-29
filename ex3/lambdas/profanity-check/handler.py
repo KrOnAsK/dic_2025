@@ -1,5 +1,5 @@
 import boto3
-from better_profanity import profanity
+from profanityfilter import ProfanityFilter
 
 import json
 import os
@@ -31,6 +31,7 @@ def handler(event, context):
     object_key = s3_event["object"]["key"]
 
     try:
+        pf = ProfanityFilter()
 
         response = s3.get_object(Bucket=bucket_name, Key=object_key)
         processed_review = json.loads(response['Body'].read().decode('utf-8'))
@@ -39,8 +40,7 @@ def handler(event, context):
         review_text_tokens = processed_review["processed"]["reviewText_tokens"]
         reviewer_id = processed_review["original_review"]["reviewerID"]
 
-        is_profane = profanity.contains_profanity(summary_tokens) or profanity.contains_profanity(review_text_tokens)
-
+        is_profane = pf.is_profane(" ".join(summary_tokens)) or pf.is_profane(" ".join(review_text_tokens))
     except Exception as e:
         print(f"Error processing file s3://{bucket_name}/{object_key}: {e}")
         return {"statusCode": 500, "body": json.dumps(f"Error: {str(e)}")}

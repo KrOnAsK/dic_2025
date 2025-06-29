@@ -1,5 +1,6 @@
 import boto3
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 import json
 import os
@@ -18,7 +19,9 @@ s3: "S3Client" = boto3.client("s3", endpoint_url=endpoint_url)
 ssm: "SSMClient" = boto3.client("ssm", endpoint_url=endpoint_url)
 dynamodb_resource = boto3.resource("dynamodb", endpoint_url=endpoint_url)
 
-analyzer = SentimentIntensityAnalyzer()
+# TODO: download locally and package into zip
+nltk.data.path.append("/tmp")
+nltk.download("vader_lexicon", download_dir="/tmp")
 
 
 def get_results_table_name() -> str:
@@ -32,17 +35,25 @@ def classify_sentiment(text: str) -> dict:
     Returns the classification (positive, neutral, negative) and the compound score.
     """
 
-    scores = analyzer.polarity_scores(text)
-    compound_score = scores['compound']
+    scores = SentimentIntensityAnalyzer().polarity_scores(text)
+    neg_score = scores['neg']
+    neu_score = scores['neu']
+    pos_score = scores['pos']
 
-    if compound_score >= 0.05:
+    if pos_score > neu_score and pos_score > neg_score:
         classification = "positive"
-    elif compound_score <= -0.05:
+    elif neg_score > neu_score and neg_score > pos_score:
         classification = "negative"
     else:
         classification = "neutral"
 
-    return {"classification": classification, "score": compound_score}
+    return {
+        "classification": classification,
+        "score": scores["compound"],
+        "score_negative": scores["neg"],
+        "score_neutral": scores["neu"],
+        "score_positive": scores["pos"],
+    }
 
 
 def handler(event, context):
@@ -80,7 +91,10 @@ def handler(event, context):
                 'review_id': object_key,
                 'reviewerID': review_data.get("reviewerID"),
                 'sentiment': sentiment_result.get("classification"),
-                'sentiment_score': str(sentiment_result.get("score", 0.0))
+                'sentiment_score': str(sentiment_result.get("score", 0.0)),
+                'sentiment_score_negative': str(sentiment_result.get("score_negative", 0.0)),
+                'sentiment_score_neutral': str(sentiment_result.get("score_neutral", 0.0)),
+                'sentiment_score_positive': str(sentiment_result.get("score_positive", 0.0))
 
             }
         )

@@ -30,10 +30,7 @@ def handler(event, context):
         print(f"Response: {response}")
         items = response.get('Items', [])
         print(f"Retrieved {len(items)} items from the table.")
-        return {
-            'statusCode': 200,
-            'body': json.dumps(items)
-        }
+        return items
     except Exception as e:
         print(f"Error scanning table: {str(e)}")
         return {

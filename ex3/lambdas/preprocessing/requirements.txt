@@ -1,2 +1,4 @@
 boto3==1.38.23
 nltk
+
+# TODO: figure out why we get the error `Runtime.ImportModuleError: Unable to import module 'handler': No module named 'regex._regex'`
