@@ -91,7 +91,9 @@ lambdas:
 
     # --- Sentiment Analysis Lambda ---
     awslocal lambda delete-function --function-name sentiment-analysis &>/dev/null || true
-    (cd lambdas/sentiment-analysis; docker run --rm -v $(pwd):/var/task alpine rm -rf /var/task/lambda.zip /var/task/package || true; mkdir package; docker run --rm -v $(pwd):/var/task -w /var/task python:3.11-slim bash -c "pip install -r requirements.txt -t package"; cd package; zip -r ../lambda.zip .; cd ..; zip -r lambda.zip handler.py nltk_data)
+    (cd lambdas/sentiment-analysis && rm -rf lambda.zip package && mkdir -p package/nltk_data && pip install -r requirements.txt -t package && python3 -m nltk.downloader vader_lexicon -d package/nltk_data && cp handler.py package/ && cd package && zip -r ../lambda.zip .)
+
+
     awslocal lambda create-function \
       --function-name sentiment-analysis \
       --runtime python3.11 --timeout 10 \

@@ -1,6 +1,7 @@
 import boto3
-import nltk
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
+#from nltk.sentiment.vader import SentimentIntensityAnalyzer -> replaced with:
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
 
 import json
 import os
@@ -10,6 +11,10 @@ import traceback
 if typing.TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
     from mypy_boto3_ssm import SSMClient
+
+# Append your bundled nltk_data folder (if it exists)
+#nltk_path = os.path.join(os.path.dirname(__file__), "nltk_data")
+#nltk.data.path.append(nltk_path)
 
 endpoint_url = None
 if os.getenv("STAGE") == "local":
@@ -37,12 +42,13 @@ def classify_sentiment(text: str) -> dict:
     neu_score = scores['neu']
     pos_score = scores['pos']
 
-    if pos_score > neu_score and pos_score > neg_score:
+    compound = scores["compound"]
+    if compound >=  0.05:
         classification = "positive"
-    elif neg_score > neu_score and neg_score > pos_score:
+    elif compound <= -0.05:
         classification = "negative"
     else:
-        classification = "neutral"
+        classification  = "neutral"
 
     return {
         "classification": classification,

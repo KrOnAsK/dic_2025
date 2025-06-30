@@ -1,2 +1,3 @@
 boto3==1.38.23
 nltk==3.9.1
+vaderSentiment==3.3.2
