@@ -151,6 +151,13 @@ lambdas_util:
     awslocal lambda create-function-url-config --function-name db_list-sentiment --auth-type NONE
 
 triggers:
+    awslocal lambda add-permission \
+      --function-name profanity-check \
+      --statement-id AllowS3InvokeProfanity \
+      --action lambda:InvokeFunction \
+      --principal s3.amazonaws.com \
+      --source-arn arn:aws:s3:::reviews-processed \
+      || echo "Permission already exists."
     # Trigger for Preprocessing and Sentiment Analysis
     awslocal s3api put-bucket-notification-configuration \
       --bucket {{ REVIEWS_BUCKET }} \

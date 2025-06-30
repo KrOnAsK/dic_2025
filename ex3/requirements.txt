@@ -15,3 +15,5 @@ awscli
 
 nltk==3.9.1
 profanityfilter==2.1.0
+
+pytest

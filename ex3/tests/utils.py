@@ -6,8 +6,21 @@ PROCESSED_BUCKET  = "reviews-processed"
 PROFANITY_TABLE   = "profanity"
 SENTIMENT_TABLE   = "sentiment"
 
-s3   = boto3.client("s3", endpoint_url=ENDPOINT)
-dyna = boto3.client("dynamodb", endpoint_url=ENDPOINT)
+s3 = boto3.client(
+    "s3",
+    endpoint_url=ENDPOINT,
+    region_name="us-east-1",
+    aws_access_key_id="test",
+    aws_secret_access_key="test"
+)
+
+dyna = boto3.client(
+    "dynamodb",
+    endpoint_url=ENDPOINT,
+    region_name="us-east-1",
+    aws_access_key_id="test",
+    aws_secret_access_key="test"
+)
 
 def _uid() -> str:
     return uuid.uuid4().hex[:8]
